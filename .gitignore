@@ -1,0 +1,12 @@
+# OS / Office 暫存
+.DS_Store
+~$*
+
+# 機密
+.env
+.env.*
+!.env.example
+
+# Claude Code 個人設定
+.claude/settings.local.json
+CLAUDE.local.md
