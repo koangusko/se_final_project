@@ -1,0 +1,74 @@
+# 主機上的正式環境。路徑相對於這個檔案：
+#   ../../.env          ~/se-final-project/.env（機密，不進 git）
+#   ../../data/         ~/se-final-project/data（媒體檔、備份）
+#   ../../cloudflared/  ~/se-final-project/cloudflared（tunnel 憑證）
+# 啟動：docker compose -p class -f deploy/compose.yml up -d --build（scripts/deploy.sh 會做）
+name: class
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: class-app:latest
+    restart: unless-stopped
+    env_file: ../../.env
+    environment:
+      PORT: "3000"
+      MEDIA_DIR: /data/media
+    volumes:
+      - ../../data/media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 512m
+
+  db:
+    image: postgres:18.7-trixie
+    restart: unless-stopped
+    env_file: ../../.env
+    volumes:
+      # Postgres 18 起資料目錄改成 /var/lib/postgresql/<版本>/docker，掛載點是上一層
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 512m
+
+  backup:
+    image: postgres:18.7-trixie
+    restart: unless-stopped
+    env_file: ../../.env
+    volumes:
+      - ../../data/backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    # 每天備份一次，保留 7 天
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/class-$$(date +%F).dump
+          PGPASSWORD="$$POSTGRES_PASSWORD" pg_dump -h db -U "$$POSTGRES_USER" -Fc "$$POSTGRES_DB" > "$$f.tmp" && mv "$$f.tmp" "$$f" && echo "backup ok: $$f"
+          find /backups -name 'class-*.dump' -mtime +7 -delete
+          sleep 86400
+        done
+    mem_limit: 128m
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.11.1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ../../cloudflared/credentials.json:/etc/cloudflared/credentials.json:ro
+    depends_on:
+      - app
+    mem_limit: 128m
+
+volumes:
+  pgdata:
+    name: class_pgdata
