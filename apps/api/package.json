@@ -1,0 +1,35 @@
+{
+  "name": "@class/api",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app-type": "./src/app-type.ts"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.ts",
+    "start": "node src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:generate:custom": "drizzle-kit generate --custom",
+    "db:seed": "node --env-file-if-exists=../../.env src/cli/seed.ts",
+    "grant-admin": "node --env-file-if-exists=../../.env src/cli/grant-admin.ts",
+    "import-courses": "node --env-file-if-exists=../../.env src/cli/import-courses.ts",
+    "db:seed:demo": "node --env-file-if-exists=../../.env src/cli/seed.ts --demo"
+  },
+  "dependencies": {
+    "@class/shared": "workspace:*",
+    "@hono/node-server": "catalog:",
+    "@hono/zod-validator": "catalog:",
+    "drizzle-orm": "catalog:",
+    "hono": "catalog:",
+    "pg": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "drizzle-kit": "catalog:",
+    "typescript": "catalog:"
+  }
+}

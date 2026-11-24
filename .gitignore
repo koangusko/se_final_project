@@ -10,3 +10,17 @@
 # Claude Code 個人設定
 .claude/settings.local.json
 CLAUDE.local.md
+
+# 依賴與產出
+node_modules/
+dist/
+*.tsbuildinfo
+apps/web/src/routeTree.gen.ts
+
+# 本機資料（PGlite 資料庫、上傳的媒體檔）
+.data/
+
+# 測試產出
+coverage/
+test-results/
+playwright-report/

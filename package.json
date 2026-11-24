@@ -1,0 +1,36 @@
+{
+  "name": "class-space",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @class/api --filter @class/web dev",
+    "dev:phone": "pnpm --parallel --filter @class/api --filter @class/web dev --host",
+    "build": "pnpm --filter @class/web build",
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:boundaries": "node scripts/check-boundaries.ts",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm check:boundaries && pnpm test",
+    "db:generate": "pnpm --filter @class/api db:generate",
+    "db:seed": "pnpm --filter @class/api db:seed",
+    "db:demo": "pnpm --filter @class/api db:seed:demo",
+    "db:courses": "pnpm --filter @class/api import-courses 1151",
+    "db:reset": "node -e \"require('node:fs').rmSync('apps/api/.data',{recursive:true,force:true});console.log('已刪除 apps/api/.data，執行 pnpm db:seed 重建')\""
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=26.10"
+  },
+  "packageManager": "pnpm@12.23.0"
+}
