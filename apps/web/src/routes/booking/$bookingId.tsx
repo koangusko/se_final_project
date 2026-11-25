@@ -1,16 +1,20 @@
-/** 預約詳細（B5）：教室、時間、用途、人數、物品、審核意見、歷程。取消在 B8。 */
-import { useQuery } from "@tanstack/react-query";
+/** 預約詳細（B5、B8）：教室、時間、用途、人數、物品、審核意見、歷程；可以取消時有「取消預約」。 */
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { canCancelBooking } from "@class/shared/permissions";
 import { formatDateTime } from "@class/shared/time";
 import {
+  Button,
   ButtonLink,
   Card,
+  ConfirmDialog,
   ErrorBlock,
   LoadingBlock,
   PageHeader,
+  toast,
 } from "../../components/ui/index.ts";
-import { ApiError } from "../../lib/api.ts";
+import { api, ApiError, unwrap } from "../../lib/api.ts";
 import { requireApproved, useMe } from "../../lib/auth.ts";
 import {
   BookingStatusBadge,
@@ -19,7 +23,7 @@ import {
   itemsText,
   roomLabel,
 } from "../../modules/booking/parts.tsx";
-import { bookingDetailQuery } from "../../modules/booking/queries.ts";
+import { bookingDetailQuery, bookingKeys } from "../../modules/booking/queries.ts";
 
 export const Route = createFileRoute("/booking/$bookingId")({
   beforeLoad: requireApproved,
@@ -30,6 +34,22 @@ function BookingDetailPage() {
   const { bookingId } = Route.useParams();
   const me = useMe();
   const detail = useQuery(bookingDetailQuery(bookingId));
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const cancel = useMutation({
+    mutationFn: () =>
+      unwrap(api.booking.bookings[":id"].cancel.$post({ param: { id: bookingId } })),
+    onSuccess: async () => {
+      toast.success("已取消預約");
+      setConfirming(false);
+      await qc.invalidateQueries({ queryKey: bookingKeys.all });
+    },
+    onError: async (err) => {
+      toast.error(err, "無法取消");
+      setConfirming(false);
+      await qc.invalidateQueries({ queryKey: bookingKeys.all });
+    },
+  });
 
   if (detail.isPending) return <LoadingBlock />;
   if (detail.isError) {
@@ -49,6 +69,7 @@ function BookingDetailPage() {
   const b = detail.data;
   // 管理員看別人的預約時，回到審核頁
   const isMine = me?.id === b.user.id;
+  const canCancel = me !== null && canCancelBooking(me, { userId: b.user.id, status: b.status });
 
   return (
     <div className="space-y-6">
@@ -92,6 +113,26 @@ function BookingDetailPage() {
           <EventTimeline events={b.events} />
         </Card>
       </div>
+      {canCancel && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-ink-muted">
+            {isMine ? "不需要這個時段了？可以取消預約。" : "取消後借用人會在紀錄裡看到。"}
+          </p>
+          <Button variant="secondary" onClick={() => setConfirming(true)}>
+            取消預約
+          </Button>
+        </div>
+      )}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="取消這筆預約？"
+        description={`${roomLabel(b.room)}　${bookingWhen(b)}。取消後如果還需要，要重新申請。`}
+        confirmLabel="取消預約"
+        danger
+        loading={cancel.isPending}
+        onConfirm={() => cancel.mutate()}
+      />
     </div>
   );
 }

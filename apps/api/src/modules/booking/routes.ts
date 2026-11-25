@@ -28,6 +28,7 @@ import { listOccupancy, toOccupancyDto } from "../../core/occupancy.ts";
 import { validate } from "../../core/validate.ts";
 import { bookings, items, rooms } from "../../db/schema/index.ts";
 import {
+  cancelBooking,
   createBooking,
   findBooking,
   findBookings,
@@ -226,4 +227,13 @@ export const bookingRoutes = new Hono<AppEnv>()
       if (!booking) throw notFound("預約");
       return c.json({ booking });
     },
-  );
+  )
+
+  // ---- B8 取消 ----
+  .post("/bookings/:id/cancel", validate("param", idParam), async (c) => {
+    const { id } = c.req.valid("param");
+    await cancelBooking(c.var.db, requireApproved(c), id);
+    const booking = await findBooking(c.var.db, id);
+    if (!booking) throw notFound("預約");
+    return c.json({ booking });
+  });

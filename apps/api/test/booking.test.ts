@@ -695,7 +695,52 @@ describe("B7 借出與歸還", () => {
   });
 });
 
+const cancel = (id: string, as: TestUser) =>
+  t.request(`/api/booking/bookings/${id}/cancel`, { method: "POST", as });
+
 describe("B8 取消", () => {
-  it.todo("本人可以取消待審核的預約");
-  it.todo("本人不能取消已核准的預約；管理員可以");
+  it("本人可以取消待審核的預約", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+
+    // 別人的預約當作不存在
+    expect((await cancel(b.id, bob)).status).toBe(404);
+    expect((await cancel(crypto.randomUUID(), alice)).status).toBe(404);
+
+    const res = await cancel(b.id, alice);
+    expect(res.status).toBe(200);
+    expect((await json<{ booking: BookingDto }>(res)).booking.status).toBe("cancelled");
+    const detail = await json<{ booking: BookingDetailDto }>(
+      await t.request(`/api/booking/bookings/${b.id}`, { as: alice }),
+    );
+    expect(detail.booking.events.at(-1)).toMatchObject({
+      action: "cancelled",
+      actor: { id: alice.id },
+    });
+
+    // 已取消的不能再取消、不能審核
+    expect(await errorCode(await cancel(b.id, alice))).toBe("INVALID_STATE");
+    expect(await errorCode(await review(b.id, { decision: "approve" }))).toBe("INVALID_STATE");
+  });
+
+  it("本人不能取消已核准的預約；管理員可以", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    await review(b.id, { decision: "approve" });
+    const own = await cancel(b.id, alice);
+    expect(own.status).toBe(409);
+    expect(await errorCode(own)).toBe("INVALID_STATE");
+
+    const byAdmin = await cancel(b.id, admin);
+    expect(byAdmin.status).toBe(200);
+    expect((await json<{ booking: BookingDto }>(byAdmin)).booking.status).toBe("cancelled");
+
+    // 取消後教室空出來：重疊的申請可以核准
+    const next = await createBooking(bob, { roomId: room.id });
+    expect((await review(next.id, { decision: "approve" })).status).toBe(200);
+
+    // 借出中的連管理員也不能取消
+    await handover(next.id, "checkout");
+    expect(await errorCode(await cancel(next.id, admin))).toBe("INVALID_STATE");
+  });
 });
