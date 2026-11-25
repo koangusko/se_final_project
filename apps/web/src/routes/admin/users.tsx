@@ -20,11 +20,11 @@ import {
   EmptyState,
   ErrorBlock,
   Field,
+  InlineError,
   Input,
   LoadingBlock,
   PageHeader,
   Select,
-  toast,
 } from "../../components/ui/index.ts";
 import { api, unwrap } from "../../lib/api.ts";
 import { requireRole } from "../../lib/auth.ts";
@@ -133,12 +133,10 @@ function ReviewDialog({ user, onClose }: { user: UserDto; onClose: () => void })
   const review = useMutation({
     mutationFn: (input: ReviewUserInput) =>
       unwrap(api.admin.users[":id"].review.$post({ param: { id: user.id }, json: input })),
-    onSuccess: async (_, input) => {
-      toast.success(input.decision === "approve" ? "已核准" : "已拒絕");
+    onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["admin", "users"] });
       onClose();
     },
-    onError: (err) => toast.error(err),
   });
 
   return (
@@ -166,6 +164,7 @@ function ReviewDialog({ user, onClose }: { user: UserDto; onClose: () => void })
       }
     >
       <div className="space-y-4">
+        <InlineError error={review.error} />
         <Field label="角色">
           {(p) => (
             <Select

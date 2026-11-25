@@ -3,7 +3,6 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { z } from "zod";
 import { createRoot } from "react-dom/client";
-import { ToastProvider } from "./components/ui/index.ts";
 import { ApiError } from "./lib/api.ts";
 import { routeTree } from "./routeTree.gen.ts";
 import "./styles.css";
@@ -40,9 +39,7 @@ if (!root) throw new Error("#root not found");
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <RouterProvider router={router} />
-      </ToastProvider>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

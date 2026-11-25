@@ -15,12 +15,12 @@ import {
   ErrorBlock,
   Field,
   fieldErrors,
+  InlineError,
   LoadingBlock,
   PageHeader,
   Textarea,
-  toast,
 } from "../../../components/ui/index.ts";
-import { api, ApiError, errorMessage, unwrap } from "../../../lib/api.ts";
+import { api, ApiError, unwrap } from "../../../lib/api.ts";
 import { requireRole } from "../../../lib/auth.ts";
 import {
   BookingStatusBadge,
@@ -186,16 +186,11 @@ function ReviewDialog({
   const qc = useQueryClient();
   const [note, setNote] = useState("");
   const [error, setError] = useState<string>();
-  const [failure, setFailure] = useState<string>();
   const review = useMutation({
-    mutationFn: (input: ReviewBookingInput) => {
-      setFailure(undefined);
-      return unwrap(
-        api.booking.admin.bookings[":id"].review.$post({ param: { id: b.id }, json: input }),
-      );
-    },
-    onSuccess: async (_, input) => {
-      toast.success(input.decision === "approve" ? "已核准" : "已退件");
+    mutationFn: (input: ReviewBookingInput) =>
+      unwrap(api.booking.admin.bookings[":id"].review.$post({ param: { id: b.id }, json: input })),
+    // 成功：對話框關閉，這筆移出「待審核」；失敗：錯誤顯示在對話框裡
+    onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
       onClose();
     },
@@ -204,12 +199,12 @@ function ReviewDialog({
         setError(fieldErrors(err.details).note ?? err.message);
         return;
       }
-      // 顯示在對話框裡（手機上 toast 會蓋住按鈕）
-      setFailure(errorMessage(err));
       // 狀態或占用變了：重新抓列表
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
     },
   });
+  const failure =
+    review.error instanceof ApiError && review.error.code === "VALIDATION" ? null : review.error;
   const deciding = review.isPending ? review.variables.decision : null;
   const trimmed = note.trim();
 
@@ -271,14 +266,7 @@ function ReviewDialog({
             <p className="mt-1 text-ink-muted">核准這筆之後，重疊的申請就不能再核准。</p>
           </div>
         )}
-        {failure && (
-          <p
-            role="alert"
-            className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
-          >
-            {failure}
-          </p>
-        )}
+        <InlineError error={failure} />
         <Field label="審核意見" hint="退件時必填，借用人會看到" error={error}>
           {(p) => (
             <Textarea
@@ -303,9 +291,9 @@ interface Handover {
 }
 
 const HANDOVER_TEXT = {
-  checkout: { title: "確認借出", confirm: "借出", done: "已註記借出" },
-  return: { title: "確認歸還", confirm: "歸還", done: "已註記歸還" },
-  cancel: { title: "取消這筆已核准的預約？", confirm: "取消預約", done: "已取消預約" },
+  checkout: { title: "確認借出", confirm: "借出" },
+  return: { title: "確認歸還", confirm: "歸還" },
+  cancel: { title: "取消這筆已核准的預約？", confirm: "取消預約" },
 } as const;
 
 /** 借出、歸還、取消前確認：教室、時間、借用人、物品 */
@@ -323,16 +311,12 @@ function HandoverDialog({ kind, booking: b, onClose }: Handover & { onClose: () 
       }
       return unwrap(api.booking.bookings[":id"].cancel.$post({ param }));
     },
+    // 成功：對話框關閉，這筆移到下一個頁籤；失敗：錯誤顯示在確認框裡
     onSuccess: async () => {
-      toast.success(text.done);
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
       onClose();
     },
-    onError: async (err) => {
-      toast.error(err, `無法${text.confirm}`);
-      onClose();
-      await qc.invalidateQueries({ queryKey: bookingKeys.all });
-    },
+    onError: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
   });
   return (
     <ConfirmDialog
@@ -344,6 +328,7 @@ function HandoverDialog({ kind, booking: b, onClose }: Handover & { onClose: () 
       cancelLabel={kind === "cancel" ? "返回" : "取消"}
       danger={kind === "cancel"}
       loading={run.isPending}
+      error={run.error}
       onConfirm={() => run.mutate()}
     />
   );

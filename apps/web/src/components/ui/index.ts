@@ -5,7 +5,14 @@
 export { Button, ButtonLink, buttonClass } from "./button.tsx";
 export { DataTable, type Column } from "./data-table.tsx";
 export { ConfirmDialog, Dialog } from "./dialog.tsx";
-export { Badge, EmptyState, ErrorBlock, LoadingBlock, Spinner } from "./feedback.tsx";
-export { Checkbox, Field, fieldErrors, Input, Select, Textarea } from "./form.tsx";
+export { Badge, EmptyState, ErrorBlock, InlineError, LoadingBlock, Spinner } from "./feedback.tsx";
+export {
+  Checkbox,
+  Field,
+  fieldErrors,
+  Input,
+  revealFirstError,
+  Select,
+  Textarea,
+} from "./form.tsx";
 export { Card, PageHeader, Section } from "./layout.tsx";
-export { ToastProvider, toast } from "./toast.tsx";

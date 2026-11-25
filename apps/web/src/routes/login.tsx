@@ -3,7 +3,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod";
 import type { DevLoginInput } from "@class/shared/core";
-import { Button, Card, ErrorBlock, toast } from "../components/ui/index.ts";
+import { Button, Card, ErrorBlock, InlineError } from "../components/ui/index.ts";
 import { api, unwrap } from "../lib/api.ts";
 import { authConfigQuery, lineLoginUrl, meQuery } from "../lib/auth.ts";
 
@@ -32,15 +32,17 @@ function LoginPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [devBusy, setDevBusy] = useState<string | null>(null);
+  const [devError, setDevError] = useState<unknown>(null);
 
   async function devLogin(as: DevLoginInput["as"]) {
     setDevBusy(as);
+    setDevError(null);
     try {
       await unwrap(api.auth["dev-login"].$post({ json: { as } }));
       await qc.invalidateQueries({ queryKey: ["auth"] });
       await navigate({ href: as === "pending" ? "/register" : redirectTo });
     } catch (err) {
-      toast.error(err);
+      setDevError(err);
     } finally {
       setDevBusy(null);
     }
@@ -90,6 +92,7 @@ function LoginPage() {
                 </Button>
               ))}
             </div>
+            <InlineError error={devError} />
           </div>
         )}
       </Card>

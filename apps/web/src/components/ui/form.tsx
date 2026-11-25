@@ -88,3 +88,15 @@ export function fieldErrors(details: unknown): Record<string, string> {
   for (const [k, v] of Object.entries(details)) if (typeof v === "string") out[k] = v;
   return out;
 }
+
+/**
+ * 欄位驗證錯誤顯示後，把第一個有錯的欄位捲進畫面（送出按鈕常在表單底部，錯誤在畫面外）。
+ *   onError: (err) => { setErrors(fieldErrors(err.details)); revealFirstError(formRef.current); }
+ */
+export function revealFirstError(root: HTMLElement | null | undefined) {
+  requestAnimationFrame(() =>
+    root
+      ?.querySelector('[aria-invalid="true"]')
+      ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+  );
+}

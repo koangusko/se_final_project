@@ -1,7 +1,7 @@
 /** 物品管理（B1）：鑰匙綁教室，共用物品設定總數量，可以停用。 */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
@@ -20,11 +20,12 @@ import {
   ErrorBlock,
   Field,
   fieldErrors,
+  InlineError,
   Input,
   LoadingBlock,
   PageHeader,
+  revealFirstError,
   Select,
-  toast,
 } from "../../../components/ui/index.ts";
 import { api, ApiError, unwrap } from "../../../lib/api.ts";
 import { requireRole } from "../../../lib/auth.ts";
@@ -132,6 +133,7 @@ function ItemDialog({
     isActive: item?.isActive ?? true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const formRef = useRef<HTMLFormElement>(null);
 
   // 選項只有開放預約的教室；編輯中的鑰匙若綁在其他教室，也放進選項，免得被清掉
   const roomOptions = bookable.data ?? [];
@@ -147,13 +149,14 @@ function ItemDialog({
         ? unwrap(api.booking.admin.items[":id"].$patch({ param: { id: item.id }, json: input }))
         : unwrap(api.booking.admin.items.$post({ json: input })),
     onSuccess: async () => {
-      toast.success(item ? "已更新物品" : "已新增物品");
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
       onClose();
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.code === "VALIDATION") setErrors(fieldErrors(err.details));
-      else toast.error(err);
+      if (err instanceof ApiError && err.code === "VALIDATION") {
+        setErrors(fieldErrors(err.details));
+        revealFirstError(formRef.current);
+      }
     },
   });
 
@@ -165,7 +168,7 @@ function ItemDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()} title={item ? "編輯物品" : "新增物品"}>
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form ref={formRef} onSubmit={onSubmit} className="space-y-4">
         <Field label="名稱" required error={errors.name}>
           {(p) => (
             <Input
@@ -239,6 +242,10 @@ function ItemDialog({
           checked={form.isActive}
           onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
         />
+        {/* 欄位錯誤顯示在欄位下方，其他錯誤顯示在按鈕上方 */}
+        {!(save.error instanceof ApiError && save.error.code === "VALIDATION") && (
+          <InlineError error={save.error} />
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={onClose}>
             取消

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { errorMessage } from "../../lib/api.ts";
 import { cn } from "../../lib/cn.ts";
 
@@ -33,6 +33,30 @@ export function ErrorBlock({ error, onRetry }: { error: unknown; onRetry?: () =>
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * 操作失敗時，在出錯的位置顯示紅字（對話框裡、按鈕旁、列表上方），出現時自動捲進畫面。
+ * 不要用彈出提示。error 是 null / undefined 時不顯示。
+ *   <InlineError error={mutation.error} />
+ */
+export function InlineError({ error }: { error: unknown }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  // 每次新的失敗都是新的 error 物件，同樣的訊息再出現一次也會捲過去
+  useEffect(() => {
+    if (error) ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [error]);
+  if (!error) return null;
+  const message = errorMessage(error);
+  return (
+    <p
+      ref={ref}
+      role="alert"
+      className="scroll-my-4 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
+    >
+      {message}
+    </p>
   );
 }
 

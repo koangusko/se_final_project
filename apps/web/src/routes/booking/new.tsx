@@ -36,12 +36,13 @@ import {
   ErrorBlock,
   Field,
   fieldErrors,
+  InlineError,
   Input,
   LoadingBlock,
   PageHeader,
+  revealFirstError,
   Select,
   Textarea,
-  toast,
 } from "../../components/ui/index.ts";
 import { WeekGrid, WeekNav, type WeekGridEvent } from "../../components/week-grid/index.ts";
 import { api, ApiError, unwrap } from "../../lib/api.ts";
@@ -93,7 +94,8 @@ function NewBookingPage() {
   const me = useMe();
   // 管理要點：使用日 3 天前申請；管理員代為登記不受限
   const today = todayInTaipei();
-  const minDate = me?.role === "admin" ? today : addDays(today, BOOKING_LEAD_DAYS);
+  const isAdmin = me?.role === "admin";
+  const minDate = isAdmin ? today : addDays(today, BOOKING_LEAD_DAYS);
   const week = weekStartOf(search.week ?? minDate);
   const roomId = search.roomId ?? "";
 
@@ -103,6 +105,10 @@ function NewBookingPage() {
 
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  /** 後端擋下的錯誤，顯示在相關的位置：時段被占用在時間下方、物品不足在物品下方 */
+  const [failure, setFailure] = useState<{ at: "time" | "items" | "form"; error: unknown } | null>(
+    null,
+  );
   const formRef = useRef<HTMLDivElement>(null);
 
   const timeReady =
@@ -169,7 +175,7 @@ function NewBookingPage() {
   const submit = useMutation({
     mutationFn: (input: CreateBookingInput) => unwrap(api.booking.bookings.$post({ json: input })),
     onSuccess: async ({ booking }) => {
-      toast.success("已送出預約", "管理員審核後會更新狀態");
+      // 詳細頁會顯示「待審核」，不用另外提示
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
       await navigate({ to: "/booking/$bookingId", params: { bookingId: booking.id } });
     },
@@ -178,16 +184,17 @@ function NewBookingPage() {
         const fields = fieldErrors(err.details);
         setErrors(fields);
         const shown = Object.keys(fields).some((k) => FORM_FIELDS.has(k) || k.startsWith("items"));
-        if (!shown) toast.error(err, "無法送出預約");
-        // 送出按鈕在表單底部，把第一個有錯的欄位捲進畫面
-        requestAnimationFrame(() =>
-          formRef.current
-            ?.querySelector('[aria-invalid="true"]')
-            ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-        );
+        if (shown) revealFirstError(formRef.current);
+        else setFailure({ at: "form", error: err });
         return;
       }
-      toast.error(err, "無法送出預約");
+      const at =
+        err instanceof ApiError && err.code === "ROOM_OCCUPIED"
+          ? "time"
+          : err instanceof ApiError && err.code === "ITEM_UNAVAILABLE"
+            ? "items"
+            : "form";
+      setFailure({ at, error: err });
       // 占用或物品數量變了：重新抓週曆與可借數量
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
     },
@@ -197,8 +204,14 @@ function NewBookingPage() {
     void navigate({ search: { ...search, week: w } });
   }
 
+  /** 改日期或時間時，清掉「時段被占用」的錯誤 */
+  function changeTime(patch: Partial<Pick<Draft, "date" | "startTime" | "endTime">>) {
+    setDraft((d) => ({ ...d, ...patch }));
+    setFailure((f) => (f?.at === "time" ? null : f));
+  }
+
   function setDate(date: string) {
-    setDraft((d) => ({ ...d, date }));
+    changeTime({ date });
     if (DateStrSchema.safeParse(date).success && weekStartOf(date) !== week) {
       goWeek(weekStartOf(date));
     }
@@ -206,16 +219,19 @@ function NewBookingPage() {
 
   function pickSlot(start: Date) {
     const p = taipeiParts(start);
+    setFailure(null);
     if (p.date < minDate) {
-      toast.info(`請在使用日 ${BOOKING_LEAD_DAYS} 天前申請`, `最早可以預約 ${formatDate(minDate)}`);
-      return;
+      // 不帶入，在日期欄位下方說明最早可以預約哪天（管理員不受 3 天限制，只是不能選過去）
+      const why = isAdmin ? "不能預約已經過去的時段" : `請在使用日 ${BOOKING_LEAD_DAYS} 天前申請`;
+      setErrors({ date: `${why}，最早可以預約 ${formatDate(minDate)}` });
+    } else {
+      const end = taipeiParts(addMinutes(start, 60));
+      const endTime =
+        end.date === p.date && end.time <= BOOKING_CLOSE_TIME ? end.time : BOOKING_CLOSE_TIME;
+      changeTime({ date: p.date, startTime: p.time, endTime });
+      setErrors({});
     }
-    const end = taipeiParts(addMinutes(start, 60));
-    const endTime =
-      end.date === p.date && end.time <= BOOKING_CLOSE_TIME ? end.time : BOOKING_CLOSE_TIME;
-    setDraft((d) => ({ ...d, date: p.date, startTime: p.time, endTime }));
-    setErrors({});
-    // 週曆和表單上下排列時，帶入後捲到表單
+    // 週曆和表單上下排列時，捲到表單
     if (!window.matchMedia("(min-width: 1280px)").matches) {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -224,6 +240,7 @@ function NewBookingPage() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErrors({});
+    setFailure(null);
     submit.mutate({
       roomId,
       date: draft.date,
@@ -238,7 +255,9 @@ function NewBookingPage() {
   }
 
   const step = BOOKING_STEP_MINUTES * 60;
-  const itemsError = Object.entries(errors).find(([k]) => k.startsWith("items"))?.[1];
+  const itemsMessage = Object.entries(errors).find(([k]) => k.startsWith("items"))?.[1];
+  // 同一個錯誤只建立一次，InlineError 才不會每次重繪都捲動
+  const itemsError = useMemo(() => (itemsMessage ? new Error(itemsMessage) : null), [itemsMessage]);
 
   return (
     <div className="space-y-6">
@@ -348,7 +367,7 @@ function NewBookingPage() {
                         min={BOOKING_OPEN_TIME}
                         max={BOOKING_CLOSE_TIME}
                         value={draft.startTime}
-                        onChange={(e) => setDraft({ ...draft, startTime: e.target.value })}
+                        onChange={(e) => changeTime({ startTime: e.target.value })}
                       />
                     )}
                   </Field>
@@ -361,7 +380,7 @@ function NewBookingPage() {
                         min={BOOKING_OPEN_TIME}
                         max={BOOKING_CLOSE_TIME}
                         value={draft.endTime}
-                        onChange={(e) => setDraft({ ...draft, endTime: e.target.value })}
+                        onChange={(e) => changeTime({ endTime: e.target.value })}
                       />
                     )}
                   </Field>
@@ -371,6 +390,7 @@ function NewBookingPage() {
                     這個時段和「{clash.label}」重疊，請換一個時段。
                   </p>
                 )}
+                {failure?.at === "time" && <InlineError error={failure.error} />}
                 <Field label="用途" required error={errors.purpose}>
                   {(p) => (
                     <Textarea
@@ -466,9 +486,13 @@ function NewBookingPage() {
                       })}
                     </ul>
                   )}
-                  {itemsError && <p className="mt-1 text-xs text-danger">{itemsError}</p>}
+                  <div className="mt-2 space-y-2">
+                    <InlineError error={itemsError} />
+                    {failure?.at === "items" && <InlineError error={failure.error} />}
+                  </div>
                 </div>
 
+                {failure?.at === "form" && <InlineError error={failure.error} />}
                 <Button type="submit" className="w-full" loading={submit.isPending}>
                   送出預約
                 </Button>
