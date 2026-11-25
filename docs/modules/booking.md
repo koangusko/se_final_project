@@ -100,10 +100,10 @@
 - `/booking/new?roomId&week`：佔位頁已經定好 `validateSearch`（`roomId`、`week`），保留這兩個欄位。
 - 教室下拉：`api.rooms.$get({ query: { bookable: "1" } })`，依建築與樓層用 `<optgroup>` 分組；換教室時更新網址的 `roomId`。
 - `WeekNav` + `WeekGrid`：顯示時段用 `BOOKING_OPEN_TIME`–`BOOKING_CLOSE_TIME`；課程 `tone: "course"`、已核准預約 `tone: "booking"`、我的待審核 `tone: "pending"`、正在填的這筆 `tone: "conflict"`，附圖例。
-- 點空白格帶入日期與時間（預設一小時）；早於最早可預約日時用 `toast` 提示，不帶入。
+- 點空白格帶入日期與時間（預設一小時）；早於最早可預約日時不帶入，在日期欄位下方顯示最早可預約日。
 - 表單：日期（`min` 為最早可預約日）、開始與結束時間（`step` 600）、用途、人數；填好時間後列出 `availability` 的物品，可勾選與填數量。
 - 頁面上方顯示「借用須知」：3 天前申請、開放時間、單次上限、學生社團規定，附 `BOOKING_RULES_URL` 連結。
-- 送出成功導到 `/booking/$bookingId`；驗證錯誤顯示在欄位下方，`ROOM_OCCUPIED`、`ITEM_UNAVAILABLE` 用 `toast` 顯示後端訊息。
+- 送出成功導到 `/booking/$bookingId`；驗證錯誤顯示在欄位下方並捲到第一個錯誤；`ROOM_OCCUPIED` 顯示在時間欄位下方、`ITEM_UNAVAILABLE` 顯示在借用物品下方（`InlineError`，後端訊息）。
 - 驗收：手動（電腦與手機）。
 
 ### B5 借用紀錄（P1）

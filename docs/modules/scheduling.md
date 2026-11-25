@@ -68,7 +68,7 @@
 - `week` 參數不是週一時，後端換成那一週的週一。
 - 教室不存在或已停用回 400。
 - 取消單一時段（例如放假）目前用刪除時段處理；`cancelled` 狀態保留給之後的「停課」功能，現在沒有 API 會設定它。
-- 衝突清單只開放管理員。教師拖拉自己的課之後只提示「已移動」，不檢查衝突。
+- 衝突清單只開放管理員。教師拖拉自己的課不檢查衝突。
 - 一般使用者的教師篩選選項，從 `GET /courses` 出現過的教師組出來（`GET /teachers` 只給管理員）。
 
 ## 頁面一覽
@@ -152,8 +152,8 @@
 
 - `/scheduling/admin` 的週曆 `WeekGrid` 傳 `onEventMove`，事件設 `draggable: true`。
 - 放下後呼叫 `PATCH /sessions/:id`，日期與時間從 `onEventMove` 給的 start/end 用 `taipeiParts` 取出。
-- 用 TanStack Query 的 optimistic update：先移動，失敗時還原並 `toast.error`。
-- 拖完如果造成衝突，用 toast 提示「已移動，但與 X 衝突」（呼叫 conflicts API 檢查該週即可）。
+- 用 TanStack Query 的 optimistic update：先移動，失敗時還原，並在週曆上方用 `InlineError` 顯示錯誤。
+- 拖完如果造成衝突，在週曆上方用紅字顯示「已移動，但與 X 衝突」（呼叫 conflicts API 檢查該週即可）。
 - 教師在 `/scheduling` 的週曆上也可以拖自己的課（`canEditCourse`）。
 - 驗收：C7 區塊（API）+ 手動（滑鼠與觸控板各一次）。
 
