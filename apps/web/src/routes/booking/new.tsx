@@ -216,7 +216,7 @@ function NewBookingPage() {
     setDraft((d) => ({ ...d, date: p.date, startTime: p.time, endTime }));
     setErrors({});
     // 週曆和表單上下排列時，帶入後捲到表單
-    if (!window.matchMedia("(min-width: 1024px)").matches) {
+    if (!window.matchMedia("(min-width: 1280px)").matches) {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
@@ -297,7 +297,7 @@ function NewBookingPage() {
       {roomId === "" ? (
         <p className="text-sm text-ink-muted">先選擇教室，就會顯示這週的使用狀況。</p>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
               <Legend className="border-event-course bg-event-course/12" label="課程" />
@@ -323,7 +323,7 @@ function NewBookingPage() {
             )}
           </div>
 
-          <div ref={formRef} className="scroll-mt-4 lg:sticky lg:top-4">
+          <div ref={formRef} className="scroll-mt-4 xl:sticky xl:top-4">
             <Card>
               <form onSubmit={onSubmit} className="space-y-4">
                 <h2 className="font-medium">{room ? `預約 ${room.code}` : "預約資料"}</h2>

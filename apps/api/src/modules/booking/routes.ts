@@ -9,19 +9,22 @@ import { and, asc, eq, gt, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
+  BOOKING_STATUSES,
   CreateBookingInput,
   ItemAvailabilityQuery,
   ItemInput,
   ItemPatch,
+  type BookingDetailDto,
 } from "@class/shared/booking";
+import { can } from "@class/shared/permissions";
 import { DateStrSchema, toInstant, weekRange, weekStartOf } from "@class/shared/time";
 import { notFound } from "../../core/errors.ts";
-import { requireAction, requireApproved } from "../../core/guards.ts";
+import { actorOf, requireAction, requireApproved } from "../../core/guards.ts";
 import type { AppEnv } from "../../core/http.ts";
 import { listOccupancy, toOccupancyDto } from "../../core/occupancy.ts";
 import { validate } from "../../core/validate.ts";
 import { bookings, items, rooms } from "../../db/schema/index.ts";
-import { createBooking, findBooking, findBookings } from "./bookings.ts";
+import { createBooking, findBooking, findBookings, findEvents } from "./bookings.ts";
 import { assertItemRoom, itemAvailability, listBorrowableItems, toItemDto } from "./items.ts";
 
 const idParam = z.object({ id: z.uuid() });
@@ -122,4 +125,30 @@ export const bookingRoutes = new Hono<AppEnv>()
       );
       return c.json({ room, occupancy: occupancy.map(toOccupancyDto), mine });
     },
-  );
+  )
+
+  // ---- B5 借用紀錄（mine 要在 :id 前面） ----
+  .get(
+    "/bookings/mine",
+    validate("query", z.object({ status: z.enum(BOOKING_STATUSES).optional() })),
+    async (c) => {
+      const me = requireApproved(c);
+      const { status } = c.req.valid("query");
+      const list = await findBookings(
+        c.var.db,
+        and(eq(bookings.userId, me.id), status ? eq(bookings.status, status) : undefined),
+      );
+      return c.json({ bookings: list });
+    },
+  )
+
+  .get("/bookings/:id", validate("param", idParam), async (c) => {
+    const me = requireApproved(c);
+    const booking = await findBooking(c.var.db, c.req.valid("param").id);
+    // 別人的預約一律當作不存在，不透露有這筆
+    if (!booking || (booking.user.id !== me.id && !can(actorOf(c), "booking.viewAll"))) {
+      throw notFound("預約");
+    }
+    const detail: BookingDetailDto = { ...booking, events: await findEvents(c.var.db, booking.id) };
+    return c.json({ booking: detail });
+  });
