@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/*
+ * 設計 token。元件一律用這些語意色（bg-surface、text-ink-muted、bg-accent...），
+ * 不要直接寫 bg-teal-700 這種原始色，之後換主題只要改這裡。
+ */
+@theme {
+  --font-sans:
+    "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
+
+  --color-canvas: #f6f4ef;
+  --color-surface: #ffffff;
+  --color-surface-muted: #efece5;
+  --color-line: #ddd8cc;
+  --color-line-strong: #bdb6a6;
+
+  --color-ink: #1d2422;
+  --color-ink-muted: #5b6461;
+  --color-ink-faint: #8c938f;
+
+  --color-accent: #0f5c5a;
+  --color-accent-hover: #0b4846;
+  --color-accent-soft: #dcebe8;
+  --color-accent-ink: #ffffff;
+
+  --color-danger: #b4232a;
+  --color-danger-soft: #f8e1e1;
+  --color-warning: #9a5b00;
+  --color-warning-soft: #fbecd2;
+  --color-success: #1f7a3a;
+  --color-success-soft: #dff1e3;
+  --color-info: #285ea8;
+  --color-info-soft: #e1ebf8;
+
+  /* 週曆事件 */
+  --color-event-course: #285ea8;
+  --color-event-booking: #0f5c5a;
+  --color-event-pending: #9a5b00;
+  --color-event-conflict: #b4232a;
+  --color-event-muted: #8c938f;
+
+  --radius-card: 0.75rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas font-sans text-ink antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+}

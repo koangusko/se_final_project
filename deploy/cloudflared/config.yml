@@ -1,0 +1,9 @@
+# Cloudflare Tunnel「class」的轉發規則（本機管理模式）。
+# 憑證 credentials.json 只放在主機上，不進 git。
+tunnel: 731c76f8-99d7-43d1-bb5f-60c200e16d3e
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: class.asdxcvw.com
+    service: http://app:3000
+  - service: http_status:404

@@ -1,0 +1,40 @@
+{
+  "name": "@class/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsr generate && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsr generate && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@base-ui/react": "catalog:",
+    "@class/shared": "workspace:*",
+    "@dnd-kit/core": "catalog:",
+    "@dnd-kit/modifiers": "catalog:",
+    "@dnd-kit/utilities": "catalog:",
+    "@sparkjsdev/spark": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "hono": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "three": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@class/api": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/router-cli": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/three": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
