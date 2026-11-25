@@ -52,4 +52,14 @@
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-accent;
   }
+  /* iOS Safari 的日期、時間輸入框有內建最小寬度，會忽略 width: 100% 撐出容器 */
+  input:is([type="date"], [type="time"], [type="datetime-local"], [type="month"]) {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+  }
+  /* 去掉原生外觀後 iOS 會把值置中，改回靠左 */
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
