@@ -1,4 +1,4 @@
-/** 預約審核與借還（B6、B7）：頁籤待審核、待借出、借出中、全部。 */
+/** 預約審核與借還（B6、B7、B8）：頁籤待審核、待借出、借出中、全部。 */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -130,9 +130,18 @@ function AdminBookingsPage() {
                 </Button>
               )}
               {b.status === "approved" && (
-                <Button size="sm" onClick={() => setHandover({ kind: "checkout", booking: b })}>
-                  借出
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setHandover({ kind: "cancel", booking: b })}
+                  >
+                    取消
+                  </Button>
+                  <Button size="sm" onClick={() => setHandover({ kind: "checkout", booking: b })}>
+                    借出
+                  </Button>
+                </>
               )}
               {b.status === "checked_out" && (
                 <Button size="sm" onClick={() => setHandover({ kind: "return", booking: b })}>
@@ -289,25 +298,30 @@ function ReviewDialog({
 }
 
 interface Handover {
-  kind: "checkout" | "return";
+  kind: "checkout" | "return" | "cancel";
   booking: BookingDto;
 }
 
 const HANDOVER_TEXT = {
   checkout: { title: "確認借出", confirm: "借出", done: "已註記借出" },
   return: { title: "確認歸還", confirm: "歸還", done: "已註記歸還" },
+  cancel: { title: "取消這筆已核准的預約？", confirm: "取消預約", done: "已取消預約" },
 } as const;
 
-/** 借出或歸還前確認：教室、時間、借用人、物品 */
+/** 借出、歸還、取消前確認：教室、時間、借用人、物品 */
 function HandoverDialog({ kind, booking: b, onClose }: Handover & { onClose: () => void }) {
   const qc = useQueryClient();
   const text = HANDOVER_TEXT[kind];
   const run = useMutation({
     mutationFn: () => {
       const param = { id: b.id };
-      return kind === "checkout"
-        ? unwrap(api.booking.admin.bookings[":id"].checkout.$post({ param, json: {} }))
-        : unwrap(api.booking.admin.bookings[":id"].return.$post({ param, json: {} }));
+      if (kind === "checkout") {
+        return unwrap(api.booking.admin.bookings[":id"].checkout.$post({ param, json: {} }));
+      }
+      if (kind === "return") {
+        return unwrap(api.booking.admin.bookings[":id"].return.$post({ param, json: {} }));
+      }
+      return unwrap(api.booking.bookings[":id"].cancel.$post({ param }));
     },
     onSuccess: async () => {
       toast.success(text.done);
@@ -327,6 +341,7 @@ function HandoverDialog({ kind, booking: b, onClose }: Handover & { onClose: () 
       title={text.title}
       description={`${roomLabel(b.room)}　${bookingWhen(b)}　借用人：${b.user.name}　物品：${itemsText(b)}`}
       confirmLabel={text.confirm}
+      danger={kind === "cancel"}
       loading={run.isPending}
       onConfirm={() => run.mutate()}
     />

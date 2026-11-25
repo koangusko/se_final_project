@@ -11,6 +11,7 @@ import {
   type ReviewBookingInput,
 } from "@class/shared/booking";
 import { addDays, todayInTaipei, toInstant } from "@class/shared/time";
+import { can, canCancelBooking } from "@class/shared/permissions";
 import { toUserRef } from "../../auth/users.ts";
 import { isExclusionViolation } from "../../core/db-errors.ts";
 import { AppError, invalidState, notFound, validationError } from "../../core/errors.ts";
@@ -269,5 +270,33 @@ export async function handoverBooking(
       .returning({ id: bookings.id });
     if (updated.length === 0) throw invalidState(`這筆預約剛剛已經${step.label}過了`);
     await recordEvent(tx, id, handler.id, step.to, note || null);
+  });
+}
+
+/**
+ * 取消預約，依 canCancelBooking：本人只能取消待審核的，管理員可以取消待審核與已核准的。
+ * 別人的預約（非管理員）當作不存在。
+ */
+export async function cancelBooking(db: Db, me: CurrentUser, id: string): Promise<void> {
+  const actor = { id: me.id, role: me.role, status: me.status };
+  const [row] = await db.select().from(bookings).where(eq(bookings.id, id));
+  if (!row || (row.userId !== actor.id && !can(actor, "booking.viewAll"))) {
+    throw notFound("預約");
+  }
+  if (!canCancelBooking(actor, row)) {
+    if (row.status === "approved") {
+      throw invalidState("已核准的預約不能自行取消，請聯絡管理員");
+    }
+    throw invalidState(`預約目前是「${BOOKING_STATUS_LABELS[row.status]}」，不能取消`);
+  }
+
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(bookings)
+      .set({ status: "cancelled" })
+      .where(and(eq(bookings.id, id), eq(bookings.status, row.status)))
+      .returning({ id: bookings.id });
+    if (updated.length === 0) throw invalidState("這筆預約的狀態剛剛變了，請重新整理");
+    await recordEvent(tx, id, me.id, "cancelled");
   });
 }
