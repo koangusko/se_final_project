@@ -12,7 +12,7 @@ description: 開始做 docs/modules 裡的一個任務，例如「/task S3」「
 
 0. 先 `git switch main && git pull && pnpm install`，再開分支 `<模組英文名>/<任務編號小寫>-<簡述>`（例如 `booking/b1-items`）。
    - 已經在這個任務的分支上就直接繼續。
-   - 前置任務還在沒合併的分支上時，從那個分支開新分支，並在回報與 PR 說明寫明依賴哪個 PR。
+   - 前置任務還在沒合併的分支上時，從那個分支開新分支，並在回報與 PR 說明寫明依賴哪個 PR（PR 仍開在 main）。
 
 1. 找到任務：編號開頭 S 是 `docs/modules/space.md`，B 是 `booking.md`，C 是 `scheduling.md`。讀整份模組規格（不只該任務段落），以及根目錄 `AGENTS.md`。
 2. 讀相關的契約與既有程式：`packages/shared/src/<模組>.ts`、`apps/api/src/modules/<模組>/`、`apps/api/src/db/schema/<模組>.ts`、`apps/web/src/routes/<模組>/`、`apps/web/src/modules/<模組>/`、`apps/api/test/<模組>.test.ts` 裡該任務的 `it.todo`，以及測試工具 `apps/api/test/helpers.ts`、`apps/api/test/fixtures.ts`。
