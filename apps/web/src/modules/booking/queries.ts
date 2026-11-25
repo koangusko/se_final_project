@@ -39,3 +39,16 @@ export const availabilityQuery = (q: {
     queryKey: ["booking", "availability", q],
     queryFn: async () => (await unwrap(api.booking.items.availability.$get({ query: q }))).items,
   });
+
+/** 我的預約（全部狀態，頁籤在前端篩選） */
+export const myBookingsQuery = queryOptions({
+  queryKey: ["booking", "mine"],
+  queryFn: async () => (await unwrap(api.booking.bookings.mine.$get({ query: {} }))).bookings,
+});
+
+export const bookingDetailQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["booking", "detail", id],
+    queryFn: async () =>
+      (await unwrap(api.booking.bookings[":id"].$get({ param: { id } }))).booking,
+  });

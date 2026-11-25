@@ -4,7 +4,12 @@
  */
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { BookingDto, ItemAvailabilityDto, ItemDto } from "@class/shared/booking";
+import type {
+  BookingDetailDto,
+  BookingDto,
+  ItemAvailabilityDto,
+  ItemDto,
+} from "@class/shared/booking";
 import { addDays, todayInTaipei } from "@class/shared/time";
 import { bookingEvents, bookingItems } from "../src/db/schema/index.ts";
 import { insertBooking, insertCourse, insertItem, insertRoom, insertSession } from "./fixtures.ts";
@@ -426,8 +431,71 @@ describe("B3 教室週狀態", () => {
 });
 
 describe("B5 借用紀錄", () => {
-  it.todo("mine 只回自己的預約，可依狀態篩選");
-  it.todo("預約詳細含歷程；別人的預約回 404");
+  it("mine 只回自己的預約，可依狀態篩選", async () => {
+    const carol = await t.createUser();
+    const room = await insertRoom(t.db);
+    const created = await book(carol, { roomId: room.id, startTime: "08:00", endTime: "09:00" });
+    const { booking: b1 } = await json<{ booking: BookingDto }>(created);
+    await insertBooking(t.db, {
+      userId: bob.id,
+      roomId: room.id,
+      date: DAY,
+      start: "13:00",
+      end: "14:00",
+    });
+    const returned = await insertBooking(t.db, {
+      userId: carol.id,
+      roomId: room.id,
+      date: "2030-03-05",
+      start: "15:00",
+      end: "16:00",
+      status: "returned",
+    });
+
+    const all = await json<{ bookings: BookingDto[] }>(
+      await t.request("/api/booking/bookings/mine", { as: carol }),
+    );
+    // 新到舊
+    expect(all.bookings.map((b) => b.id)).toEqual([returned.id, b1.id]);
+    expect(all.bookings.every((b) => b.user.id === carol.id)).toBe(true);
+
+    const pending = await json<{ bookings: BookingDto[] }>(
+      await t.request("/api/booking/bookings/mine?status=pending", { as: carol }),
+    );
+    expect(pending.bookings.map((b) => b.id)).toEqual([b1.id]);
+
+    const bad = await t.request("/api/booking/bookings/mine?status=nope", { as: carol });
+    expect(bad.status).toBe(400);
+  });
+
+  it("預約詳細含歷程；別人的預約回 404", async () => {
+    const room = await insertRoom(t.db);
+    const pointer = await insertItem(t.db, { category: "pointer", quantity: 2 });
+    const created = await book(alice, {
+      roomId: room.id,
+      items: [{ itemId: pointer.id, quantity: 1 }],
+    });
+    const { booking: b } = await json<{ booking: BookingDto }>(created);
+
+    const mine = await t.request(`/api/booking/bookings/${b.id}`, { as: alice });
+    expect(mine.status).toBe(200);
+    const { booking: detail } = await json<{ booking: BookingDetailDto }>(mine);
+    expect(detail).toMatchObject({
+      id: b.id,
+      status: "pending",
+      room: { id: room.id },
+      items: [{ itemId: pointer.id, quantity: 1 }],
+    });
+    expect(detail.events).toMatchObject([
+      { action: "created", actor: { id: alice.id, name: alice.name }, note: null },
+    ]);
+
+    const other = await t.request(`/api/booking/bookings/${b.id}`, { as: bob });
+    expect(other.status).toBe(404);
+    expect((await t.request(`/api/booking/bookings/${b.id}`, { as: admin })).status).toBe(200);
+    const missing = await t.request(`/api/booking/bookings/${crypto.randomUUID()}`, { as: alice });
+    expect(missing.status).toBe(404);
+  });
 });
 
 describe("B6 審核", () => {

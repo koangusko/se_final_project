@@ -4,6 +4,7 @@ import {
   BOOKING_LEAD_DAYS,
   type BookingDto,
   type BookingEventAction,
+  type BookingEventDto,
   type CreateBookingInput,
 } from "@class/shared/booking";
 import { addDays, todayInTaipei, toInstant } from "@class/shared/time";
@@ -86,6 +87,28 @@ export async function findBookings(
 export async function findBooking(db: Db, id: string): Promise<BookingDto | null> {
   const [b] = await findBookings(db, eq(bookings.id, id));
   return b ?? null;
+}
+
+export async function findEvents(db: Db, bookingId: string): Promise<BookingEventDto[]> {
+  const rows = await db
+    .select({
+      id: bookingEvents.id,
+      action: bookingEvents.action,
+      note: bookingEvents.note,
+      at: bookingEvents.at,
+      actor: { id: users.id, name: users.name, lineDisplayName: users.lineDisplayName },
+    })
+    .from(bookingEvents)
+    .innerJoin(users, eq(bookingEvents.actorId, users.id))
+    .where(eq(bookingEvents.bookingId, bookingId))
+    .orderBy(asc(bookingEvents.at));
+  return rows.map((r) => ({
+    id: r.id,
+    action: r.action,
+    note: r.note,
+    at: r.at.toISOString(),
+    actor: toUserRef(r.actor),
+  }));
 }
 
 export async function recordEvent(
