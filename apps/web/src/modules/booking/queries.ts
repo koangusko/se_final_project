@@ -21,3 +21,21 @@ export const adminItemsQuery = queryOptions({
   queryKey: ["booking", "admin-items"],
   queryFn: async () => (await unwrap(api.booking.admin.items.$get())).items,
 });
+
+export const roomWeekQuery = (roomId: string, week: string) =>
+  queryOptions({
+    queryKey: ["booking", "room-week", roomId, week],
+    queryFn: () =>
+      unwrap(api.booking.rooms[":id"].week.$get({ param: { id: roomId }, query: { week } })),
+  });
+
+export const availabilityQuery = (q: {
+  roomId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}) =>
+  queryOptions({
+    queryKey: ["booking", "availability", q],
+    queryFn: async () => (await unwrap(api.booking.items.availability.$get({ query: q }))).items,
+  });
