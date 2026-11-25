@@ -12,7 +12,6 @@ import {
   ErrorBlock,
   LoadingBlock,
   PageHeader,
-  toast,
 } from "../../components/ui/index.ts";
 import { api, ApiError, unwrap } from "../../lib/api.ts";
 import { requireApproved, useMe } from "../../lib/auth.ts";
@@ -39,16 +38,12 @@ function BookingDetailPage() {
   const cancel = useMutation({
     mutationFn: () =>
       unwrap(api.booking.bookings[":id"].cancel.$post({ param: { id: bookingId } })),
+    // 成功：頁面狀態變成「已取消」；失敗：錯誤顯示在確認框裡
     onSuccess: async () => {
-      toast.success("已取消預約");
       setConfirming(false);
       await qc.invalidateQueries({ queryKey: bookingKeys.all });
     },
-    onError: async (err) => {
-      toast.error(err, "無法取消");
-      setConfirming(false);
-      await qc.invalidateQueries({ queryKey: bookingKeys.all });
-    },
+    onError: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
   });
 
   if (detail.isPending) return <LoadingBlock />;
@@ -118,7 +113,13 @@ function BookingDetailPage() {
           <p className="text-sm text-ink-muted">
             {isMine ? "不需要這個時段了？可以取消預約。" : "取消後借用人會在紀錄裡看到。"}
           </p>
-          <Button variant="secondary" onClick={() => setConfirming(true)}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              cancel.reset();
+              setConfirming(true);
+            }}
+          >
             取消預約
           </Button>
         </div>
@@ -132,6 +133,7 @@ function BookingDetailPage() {
         cancelLabel="返回"
         danger
         loading={cancel.isPending}
+        error={cancel.error}
         onConfirm={() => cancel.mutate()}
       />
     </div>

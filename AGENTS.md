@@ -98,7 +98,12 @@ apps/web/src/
 
 - 呼叫 API：`unwrap(api.space.rooms.$get())`。路徑和型別都由後端推導，打錯會編譯失敗。搭配 TanStack Query（`useQuery` / `useMutation`），query key 以模組名開頭：`["space", "rooms"]`。
 - 頁面放 `apps/web/src/routes/<模組>/`，需要登入的頁面加 `beforeLoad: requireApproved`，管理頁加 `beforeLoad: requireRole(["admin"])`。
-- UI 一律用 `components/ui` 的元件（Button、Field、Input、Select、Dialog、ConfirmDialog、DataTable、Badge、toast...）。顏色用語意 token（`bg-surface`、`text-ink-muted`、`bg-accent`），不要寫 `bg-teal-700` 這種原始色。
+- UI 一律用 `components/ui` 的元件（Button、Field、Input、Select、Dialog、ConfirmDialog、DataTable、Badge、InlineError...）。顏色用語意 token（`bg-surface`、`text-ink-muted`、`bg-accent`），不要寫 `bg-teal-700` 這種原始色。
+- 不要用彈出提示（沒有 toast）。操作失敗時，錯誤以紅字顯示在出錯的位置，並捲進畫面：
+  - 欄位錯誤：`Field` 的 `error`，再呼叫 `revealFirstError(表單元素)` 捲到第一個錯誤。
+  - 其他錯誤：`<InlineError error={mutation.error} />` 放在對話框裡、按鈕旁或列表上方（會自己捲進畫面）。
+  - 確認框：`ConfirmDialog` 的 `error`，錯誤顯示在確認框裡，確認框不關。
+  - 成功不用另外提示：狀態標籤改變、項目移到別的頁籤、導到詳細頁就是回饋。
 - `components/ui` 沒有的元件（例如頁籤）在自己模組的 `modules/<模組>/` 裡用 Base UI 或一般元素做，頁籤狀態放網址參數 `tab`。
 - 週曆用 `components/week-grid` 的 `WeekGrid`，不要自己刻。拖拉只能用 `@dnd-kit/core` v6，**不要用 `@dnd-kit/react`**。
 - 日期時間用原生 `<input type="date">` / `<input type="time">`，換算一律用 `@class/shared/time`（台北時間）。**不要用 `Date#getHours()` 之類的方法**。

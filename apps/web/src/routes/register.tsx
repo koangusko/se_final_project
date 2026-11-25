@@ -1,10 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { AFFILIATION_GROUPS, AFFILIATION_OPTIONS, type RegisterInput } from "@class/shared/core";
 
 const OTHER = "__other__";
-import { Button, Card, Field, fieldErrors, Input, Select, toast } from "../components/ui/index.ts";
+import {
+  Button,
+  Card,
+  Field,
+  fieldErrors,
+  InlineError,
+  Input,
+  revealFirstError,
+  Select,
+} from "../components/ui/index.ts";
 import { api, ApiError, unwrap } from "../lib/api.ts";
 import { meQuery, useMe } from "../lib/auth.ts";
 
@@ -29,6 +38,7 @@ function RegisterPage() {
     requestedRole: "user",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const formRef = useRef<HTMLFormElement>(null);
   // 「其他」：不在管院清單裡的單位，自行填寫
   const [otherAffiliation, setOtherAffiliation] = useState(
     form.affiliation !== "" && !AFFILIATION_OPTIONS.includes(form.affiliation),
@@ -39,12 +49,14 @@ function RegisterPage() {
     onSuccess: async () => {
       setErrors({});
       setEditing(false);
+      // 頁面會切到「等待審核」，不用另外提示
       await qc.invalidateQueries({ queryKey: ["auth"] });
-      toast.success("已送出註冊資料", "管理員審核後就可以使用預約功能");
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.code === "VALIDATION") setErrors(fieldErrors(err.details));
-      else toast.error(err);
+      if (err instanceof ApiError && err.code === "VALIDATION") {
+        setErrors(fieldErrors(err.details));
+        revealFirstError(formRef.current);
+      }
     },
   });
 
@@ -81,7 +93,7 @@ function RegisterPage() {
             上次的申請沒有通過，可以修改後重新送出。
           </p>
         )}
-        <form onSubmit={onSubmit} className="mt-5 space-y-4">
+        <form ref={formRef} onSubmit={onSubmit} className="mt-5 space-y-4">
           <Field label="姓名" required error={errors.name}>
             {(p) => (
               <Input
@@ -159,6 +171,10 @@ function RegisterPage() {
               </Select>
             )}
           </Field>
+          {/* 欄位錯誤顯示在欄位下方，其他錯誤顯示在送出按鈕上方 */}
+          {!(submit.error instanceof ApiError && submit.error.code === "VALIDATION") && (
+            <InlineError error={submit.error} />
+          )}
           <Button type="submit" loading={submit.isPending} className="w-full">
             送出
           </Button>
