@@ -1,7 +1,10 @@
 /**
  * 對話框（Base UI Dialog）。用法：
  *   <Dialog open={open} onOpenChange={setOpen} title="核准預約">...內容...</Dialog>
- * 需要確認的危險動作用 ConfirmDialog。
+ * 需要確認的危險動作用 ConfirmDialog：
+ *   <ConfirmDialog open={open} onOpenChange={setOpen} title="取消這筆預約？"
+ *     confirmLabel="取消預約" cancelLabel="返回" danger onConfirm={...} />
+ * 確認按鈕本身含「取消」兩個字時，用 cancelLabel 把關閉按鈕改成「返回」，免得兩個按鈕都叫取消。
  */
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import type { ReactNode } from "react";
@@ -49,6 +52,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "確定",
+  cancelLabel = "取消",
   danger = false,
   loading = false,
   onConfirm,
@@ -58,6 +62,8 @@ export function ConfirmDialog({
   title: string;
   description?: string;
   confirmLabel?: string;
+  /** 關閉按鈕的文字，預設「取消」 */
+  cancelLabel?: string;
   danger?: boolean;
   loading?: boolean;
   onConfirm: () => void;
@@ -71,7 +77,7 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
-            取消
+            {cancelLabel}
           </Button>
           <Button variant={danger ? "danger" : "primary"} loading={loading} onClick={onConfirm}>
             {confirmLabel}
