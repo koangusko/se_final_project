@@ -6,7 +6,7 @@ import {
   type ItemCategory,
   type ItemDto,
 } from "@class/shared/booking";
-import { validationError } from "../../core/errors.ts";
+import { AppError, validationError } from "../../core/errors.ts";
 import type { Db } from "../../db/client.ts";
 import { bookingItems, bookings, items, rooms } from "../../db/schema/index.ts";
 
@@ -92,6 +92,58 @@ export async function itemAvailability(
   return list.map((i) =>
     Object.assign(toItemDto(i), { available: Math.max(0, i.quantity - (peak.get(i.id) ?? 0)) }),
   );
+}
+
+/**
+ * 檢查要借的物品：存在、啟用、鑰匙屬於這間教室（否則 400），
+ * 該時段數量足夠（否則 409 ITEM_UNAVAILABLE，details 列出不足的物品）。
+ */
+export async function assertItemsAvailable(
+  db: Db,
+  requested: { itemId: string; quantity: number }[],
+  q: { roomId: string; start: Date; end: Date; excludeBookingId?: string },
+): Promise<void> {
+  if (requested.length === 0) return;
+  const rows = await db
+    .select()
+    .from(items)
+    .where(
+      inArray(
+        items.id,
+        requested.map((r) => r.itemId),
+      ),
+    );
+  for (const r of requested) {
+    const item = rows.find((i) => i.id === r.itemId);
+    if (!item || !item.isActive) {
+      throw validationError("選擇的物品不存在或已停用", { items: "選擇的物品不存在或已停用" });
+    }
+    if (item.roomId !== null && item.roomId !== q.roomId) {
+      const msg = `「${item.name}」不是這間教室的鑰匙`;
+      throw validationError(msg, { items: msg });
+    }
+  }
+
+  const availability = await itemAvailability(db, q);
+  const short = requested
+    .map((r) => {
+      const a = availability.find((x) => x.id === r.itemId);
+      return {
+        itemId: r.itemId,
+        name: a?.name ?? "",
+        requested: r.quantity,
+        available: a?.available ?? 0,
+      };
+    })
+    .filter((x) => x.requested > x.available);
+  if (short.length > 0) {
+    throw new AppError(
+      409,
+      "ITEM_UNAVAILABLE",
+      `物品數量不足：${short.map((s) => `${s.name}（剩 ${s.available}）`).join("、")}`,
+      short,
+    );
+  }
 }
 
 /** 鑰匙一定要綁一間存在的教室；其他物品不綁教室 */
