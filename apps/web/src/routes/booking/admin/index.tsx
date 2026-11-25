@@ -8,6 +8,7 @@ import { overlaps, taipeiParts, todayInTaipei } from "@class/shared/time";
 import {
   Button,
   ButtonLink,
+  ConfirmDialog,
   DataTable,
   Dialog,
   EmptyState,
@@ -53,6 +54,7 @@ function AdminBookingsPage() {
   // 待審核的數量顯示在頁籤上，審核時也用來找同時段的其他申請
   const pending = useQuery(adminBookingsQuery("pending"));
   const [reviewing, setReviewing] = useState<BookingDto | null>(null);
+  const [handover, setHandover] = useState<Handover | null>(null);
   const today = todayInTaipei();
   const label = TABS.find((t) => t.value === tab)?.label ?? "";
 
@@ -127,11 +129,22 @@ function AdminBookingsPage() {
                   審核
                 </Button>
               )}
+              {b.status === "approved" && (
+                <Button size="sm" onClick={() => setHandover({ kind: "checkout", booking: b })}>
+                  借出
+                </Button>
+              )}
+              {b.status === "checked_out" && (
+                <Button size="sm" onClick={() => setHandover({ kind: "return", booking: b })}>
+                  歸還
+                </Button>
+              )}
             </>
           )}
         />
       )}
 
+      {handover && <HandoverDialog {...handover} onClose={() => setHandover(null)} />}
       {reviewing && (
         <ReviewDialog
           booking={reviewing}
@@ -272,5 +285,50 @@ function ReviewDialog({
         </Field>
       </div>
     </Dialog>
+  );
+}
+
+interface Handover {
+  kind: "checkout" | "return";
+  booking: BookingDto;
+}
+
+const HANDOVER_TEXT = {
+  checkout: { title: "確認借出", confirm: "借出", done: "已註記借出" },
+  return: { title: "確認歸還", confirm: "歸還", done: "已註記歸還" },
+} as const;
+
+/** 借出或歸還前確認：教室、時間、借用人、物品 */
+function HandoverDialog({ kind, booking: b, onClose }: Handover & { onClose: () => void }) {
+  const qc = useQueryClient();
+  const text = HANDOVER_TEXT[kind];
+  const run = useMutation({
+    mutationFn: () => {
+      const param = { id: b.id };
+      return kind === "checkout"
+        ? unwrap(api.booking.admin.bookings[":id"].checkout.$post({ param, json: {} }))
+        : unwrap(api.booking.admin.bookings[":id"].return.$post({ param, json: {} }));
+    },
+    onSuccess: async () => {
+      toast.success(text.done);
+      await qc.invalidateQueries({ queryKey: bookingKeys.all });
+      onClose();
+    },
+    onError: async (err) => {
+      toast.error(err, `無法${text.confirm}`);
+      onClose();
+      await qc.invalidateQueries({ queryKey: bookingKeys.all });
+    },
+  });
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={text.title}
+      description={`${roomLabel(b.room)}　${bookingWhen(b)}　借用人：${b.user.name}　物品：${itemsText(b)}`}
+      confirmLabel={text.confirm}
+      loading={run.isPending}
+      onConfirm={() => run.mutate()}
+    />
   );
 }

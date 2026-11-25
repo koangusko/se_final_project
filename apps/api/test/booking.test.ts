@@ -637,9 +637,62 @@ describe("B6 審核", () => {
   });
 });
 
+const handover = (id: string, kind: "checkout" | "return", body: unknown = {}, as = admin) =>
+  t.request(`/api/booking/admin/bookings/${id}/${kind}`, { as, json: body });
+
 describe("B7 借出與歸還", () => {
-  it.todo("approved 可以借出，checked_out 可以歸還，各自記錄時間與經手人");
-  it.todo("狀態不對回 409 INVALID_STATE");
+  it("approved 可以借出，checked_out 可以歸還，各自記錄時間與經手人", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    await review(b.id, { decision: "approve" });
+
+    const out = await handover(b.id, "checkout", { note: "鑰匙 1 支" });
+    expect(out.status).toBe(200);
+    const { booking: lent } = await json<{ booking: BookingDto }>(out);
+    expect(lent.status).toBe("checked_out");
+    expect(lent.checkedOutAt).not.toBeNull();
+    expect(lent.returnedAt).toBeNull();
+
+    const back = await handover(b.id, "return", { note: "鑰匙已收回" });
+    expect(back.status).toBe(200);
+    const { booking } = await json<{ booking: BookingDto }>(back);
+    expect(booking.status).toBe("returned");
+    expect(booking.checkedOutAt).not.toBeNull();
+    expect(booking.returnedAt).not.toBeNull();
+
+    const [row] = await t.db.select().from(bookings).where(eq(bookings.id, b.id));
+    expect(row).toMatchObject({ checkedOutBy: admin.id, returnedBy: admin.id });
+
+    const detail = await json<{ booking: BookingDetailDto }>(
+      await t.request(`/api/booking/bookings/${b.id}`, { as: alice }),
+    );
+    expect(detail.booking.events.map((e) => [e.action, e.note])).toEqual([
+      ["created", null],
+      ["approved", null],
+      ["checked_out", "鑰匙 1 支"],
+      ["returned", "鑰匙已收回"],
+    ]);
+
+    // 非管理員 403
+    expect((await handover(b.id, "return", {}, alice)).status).toBe(403);
+  });
+
+  it("狀態不對回 409 INVALID_STATE", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    // 待審核不能借出、不能歸還
+    for (const kind of ["checkout", "return"] as const) {
+      const res = await handover(b.id, kind);
+      expect(res.status).toBe(409);
+      expect(await errorCode(res)).toBe("INVALID_STATE");
+    }
+    // 已核准不能直接歸還；借出後不能再借出
+    await review(b.id, { decision: "approve" });
+    expect(await errorCode(await handover(b.id, "return"))).toBe("INVALID_STATE");
+    expect((await handover(b.id, "checkout")).status).toBe(200);
+    expect(await errorCode(await handover(b.id, "checkout"))).toBe("INVALID_STATE");
+    expect((await handover(crypto.randomUUID(), "checkout")).status).toBe(404);
+  });
 });
 
 describe("B8 取消", () => {

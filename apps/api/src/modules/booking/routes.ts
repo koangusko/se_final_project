@@ -12,6 +12,7 @@ import {
   BOOKING_STATUSES,
   BookingListQuery,
   CreateBookingInput,
+  HandoverInput,
   ItemAvailabilityQuery,
   ItemInput,
   ItemPatch,
@@ -26,7 +27,14 @@ import type { AppEnv } from "../../core/http.ts";
 import { listOccupancy, toOccupancyDto } from "../../core/occupancy.ts";
 import { validate } from "../../core/validate.ts";
 import { bookings, items, rooms } from "../../db/schema/index.ts";
-import { createBooking, findBooking, findBookings, findEvents, reviewBooking } from "./bookings.ts";
+import {
+  createBooking,
+  findBooking,
+  findBookings,
+  findEvents,
+  handoverBooking,
+  reviewBooking,
+} from "./bookings.ts";
 import { assertItemRoom, itemAvailability, listBorrowableItems, toItemDto } from "./items.ts";
 
 const idParam = z.object({ id: z.uuid() });
@@ -183,6 +191,37 @@ export const bookingRoutes = new Hono<AppEnv>()
     async (c) => {
       const { id } = c.req.valid("param");
       await reviewBooking(c.var.db, requireApproved(c), id, c.req.valid("json"));
+      const booking = await findBooking(c.var.db, id);
+      if (!booking) throw notFound("預約");
+      return c.json({ booking });
+    },
+  )
+
+  // ---- B7 借出與歸還 ----
+  .post(
+    "/admin/bookings/:id/checkout",
+    requireAction("booking.handover"),
+    validate("param", idParam),
+    validate("json", HandoverInput),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const { note } = c.req.valid("json");
+      await handoverBooking(c.var.db, requireApproved(c), id, "checkout", note);
+      const booking = await findBooking(c.var.db, id);
+      if (!booking) throw notFound("預約");
+      return c.json({ booking });
+    },
+  )
+
+  .post(
+    "/admin/bookings/:id/return",
+    requireAction("booking.handover"),
+    validate("param", idParam),
+    validate("json", HandoverInput),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const { note } = c.req.valid("json");
+      await handoverBooking(c.var.db, requireApproved(c), id, "return", note);
       const booking = await findBooking(c.var.db, id);
       if (!booking) throw notFound("預約");
       return c.json({ booking });
