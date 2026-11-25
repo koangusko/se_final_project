@@ -1,5 +1,6 @@
 /** 預約模組的 API 查詢。query key 一律以 "booking" 開頭，方便一次失效。 */
 import { queryOptions } from "@tanstack/react-query";
+import type { BookingStatus } from "@class/shared/booking";
 import { api, unwrap } from "../../lib/api.ts";
 
 export const bookingKeys = { all: ["booking"] as const };
@@ -51,4 +52,12 @@ export const bookingDetailQuery = (id: string) =>
     queryKey: ["booking", "detail", id],
     queryFn: async () =>
       (await unwrap(api.booking.bookings[":id"].$get({ param: { id } }))).booking,
+  });
+
+/** 管理員的預約列表；不給狀態就是全部 */
+export const adminBookingsQuery = (status?: BookingStatus) =>
+  queryOptions({
+    queryKey: ["booking", "admin", status ?? "all"],
+    queryFn: async () =>
+      (await unwrap(api.booking.admin.bookings.$get({ query: status ? { status } : {} }))).bookings,
   });

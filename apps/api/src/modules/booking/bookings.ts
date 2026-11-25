@@ -1,15 +1,19 @@
 /** 預約：建立、查詢組成 DTO、寫歷程。 */
-import { asc, desc, eq, inArray, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, type SQL } from "drizzle-orm";
 import {
   BOOKING_LEAD_DAYS,
+  BOOKING_STATUS_LABELS,
   type BookingDto,
   type BookingEventAction,
   type BookingEventDto,
+  type BookingStatus,
   type CreateBookingInput,
+  type ReviewBookingInput,
 } from "@class/shared/booking";
 import { addDays, todayInTaipei, toInstant } from "@class/shared/time";
 import { toUserRef } from "../../auth/users.ts";
-import { invalidState, notFound, validationError } from "../../core/errors.ts";
+import { isExclusionViolation } from "../../core/db-errors.ts";
+import { AppError, invalidState, notFound, validationError } from "../../core/errors.ts";
 import type { CurrentUser } from "../../core/http.ts";
 import { assertRoomFree } from "../../core/occupancy.ts";
 import type { Db } from "../../db/client.ts";
@@ -172,4 +176,64 @@ export async function createBooking(
     await recordEvent(tx, row.id, me.id, "created");
     return row.id;
   });
+}
+
+/** 狀態不允許這個動作就丟 409 INVALID_STATE，訊息寫明目前狀態 */
+export function expectStatus(current: BookingStatus, allowed: BookingStatus[], action: string) {
+  if (!allowed.includes(current)) {
+    throw invalidState(`預約目前是「${BOOKING_STATUS_LABELS[current]}」，不能${action}`);
+  }
+}
+
+/**
+ * 審核待審核的預約。核准時再檢查一次教室占用與物品；
+ * 檢查完到寫入之間被別人核准了重疊的預約時，資料庫約束擋下，轉成 409 ROOM_OCCUPIED。
+ */
+export async function reviewBooking(
+  db: Db,
+  reviewer: CurrentUser,
+  id: string,
+  input: ReviewBookingInput,
+): Promise<void> {
+  const [row] = await db.select().from(bookings).where(eq(bookings.id, id));
+  if (!row) throw notFound("預約");
+  expectStatus(row.status, ["pending"], "審核");
+
+  const approve = input.decision === "approve";
+  if (approve) {
+    await assertRoomFree(db, row.roomId, row.startsAt, row.endsAt, { excludeBookingId: id });
+    const requested = await db
+      .select({ itemId: bookingItems.itemId, quantity: bookingItems.quantity })
+      .from(bookingItems)
+      .where(eq(bookingItems.bookingId, id));
+    await assertItemsAvailable(db, requested, {
+      roomId: row.roomId,
+      start: row.startsAt,
+      end: row.endsAt,
+      excludeBookingId: id,
+    });
+  }
+
+  try {
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(bookings)
+        .set({
+          status: approve ? "approved" : "rejected",
+          reviewNote: input.note || null,
+          reviewedBy: reviewer.id,
+          reviewedAt: new Date(),
+        })
+        // 只改還是待審核的；同時有人先審過就不會重複審
+        .where(and(eq(bookings.id, id), eq(bookings.status, "pending")))
+        .returning({ id: bookings.id });
+      if (updated.length === 0) throw invalidState("這筆預約剛剛已經被審核過了");
+      await recordEvent(tx, id, reviewer.id, approve ? "approved" : "rejected", input.note || null);
+    });
+  } catch (err) {
+    if (isExclusionViolation(err)) {
+      throw new AppError(409, "ROOM_OCCUPIED", "這個時段教室剛剛已被其他已核准的預約占用");
+    }
+    throw err;
+  }
 }
