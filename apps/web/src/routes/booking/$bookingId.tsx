@@ -129,6 +129,7 @@ function BookingDetailPage() {
         title="取消這筆預約？"
         description={`${roomLabel(b.room)}　${bookingWhen(b)}。取消後如果還需要，要重新申請。`}
         confirmLabel="取消預約"
+        cancelLabel="返回"
         danger
         loading={cancel.isPending}
         onConfirm={() => cancel.mutate()}

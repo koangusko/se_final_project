@@ -341,6 +341,7 @@ function HandoverDialog({ kind, booking: b, onClose }: Handover & { onClose: () 
       title={text.title}
       description={`${roomLabel(b.room)}　${bookingWhen(b)}　借用人：${b.user.name}　物品：${itemsText(b)}`}
       confirmLabel={text.confirm}
+      cancelLabel={kind === "cancel" ? "返回" : "取消"}
       danger={kind === "cancel"}
       loading={run.isPending}
       onConfirm={() => run.mutate()}
