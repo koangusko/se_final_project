@@ -2,9 +2,12 @@
  * 預約借用模組驗收測試。做任務時把對應的 it.todo 改成 it(...) 並實作，測試名稱不要改。
  * 規格：docs/modules/booking.md
  */
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ItemAvailabilityDto, ItemDto } from "@class/shared/booking";
-import { insertBooking, insertItem, insertRoom } from "./fixtures.ts";
+import type { BookingDto, ItemAvailabilityDto, ItemDto } from "@class/shared/booking";
+import { addDays, todayInTaipei } from "@class/shared/time";
+import { bookingEvents, bookingItems } from "../src/db/schema/index.ts";
+import { insertBooking, insertCourse, insertItem, insertRoom, insertSession } from "./fixtures.ts";
 import { createTestContext, type TestContext, type TestUser } from "./helpers.ts";
 
 let t: TestContext;
@@ -24,6 +27,16 @@ beforeAll(async () => {
 afterAll(() => t?.close());
 
 const json = async <T>(res: Response) => (await res.json()) as T;
+const errorCode = async (res: Response) =>
+  (await json<{ error: { code: string } }>(res)).error.code;
+
+/** 預設 DAY 10:00–12:00 的預約 */
+function book(as: TestUser | undefined, body: Record<string, unknown>) {
+  return t.request("/api/booking/bookings", {
+    ...(as ? { as } : {}),
+    json: { date: DAY, startTime: "10:00", endTime: "12:00", purpose: "讀書會", ...body },
+  });
+}
 
 describe("B1 物品", () => {
   it("列出共用物品與該教室的鑰匙，不含其他教室的鑰匙與停用物品", async () => {
@@ -156,16 +169,194 @@ describe("B1 物品", () => {
 });
 
 describe("B2 建立預約", () => {
-  it.todo("已核准使用者可以建立預約，狀態為 pending，並寫入 created 歷程");
-  it.todo("未登入 401、待審核 403");
-  it.todo("與已排課程重疊回 409 ROOM_OCCUPIED");
-  it.todo("與已核准預約重疊回 409 ROOM_OCCUPIED；與待審核預約重疊可以建立");
-  it.todo("不可預約或停用的教室回 409 INVALID_STATE");
-  it.todo("過去的時段回 400");
-  it.todo("依管理要點：未滿 3 天前申請回 400，管理員代為登記不受限");
-  it.todo("依管理要點：單筆最多 4 小時、最晚到 21:00");
-  it.todo("物品數量不足回 409 ITEM_UNAVAILABLE");
-  it.todo("不能借其他教室的鑰匙");
+  it("已核准使用者可以建立預約，狀態為 pending，並寫入 created 歷程", async () => {
+    const room = await insertRoom(t.db);
+    const pointer = await insertItem(t.db, {
+      name: "投影筆 B2-1",
+      category: "pointer",
+      quantity: 2,
+    });
+    const res = await book(alice, {
+      roomId: room.id,
+      attendeeCount: 12,
+      items: [{ itemId: pointer.id, quantity: 2 }],
+    });
+    expect(res.status).toBe(201);
+    const { booking } = await json<{ booking: BookingDto }>(res);
+    expect(booking).toMatchObject({
+      status: "pending",
+      purpose: "讀書會",
+      attendeeCount: 12,
+      user: { id: alice.id },
+      room: { id: room.id, code: room.code },
+      startsAt: "2030-03-04T02:00:00.000Z",
+      endsAt: "2030-03-04T04:00:00.000Z",
+      items: [{ itemId: pointer.id, quantity: 2, category: "pointer" }],
+    });
+
+    const events = await t.db
+      .select()
+      .from(bookingEvents)
+      .where(eq(bookingEvents.bookingId, booking.id));
+    expect(events).toMatchObject([{ action: "created", actorId: alice.id }]);
+  });
+
+  it("未登入 401、待審核 403", async () => {
+    const room = await insertRoom(t.db);
+    expect((await book(undefined, { roomId: room.id })).status).toBe(401);
+    const pending = await t.createUser({ status: "pending" });
+    expect((await book(pending, { roomId: room.id })).status).toBe(403);
+  });
+
+  it("與已排課程重疊回 409 ROOM_OCCUPIED", async () => {
+    const room = await insertRoom(t.db);
+    const course = await insertCourse(t.db, { createdBy: admin.id, name: "會計學" });
+    await insertSession(t.db, {
+      courseId: course.id,
+      roomId: room.id,
+      date: DAY,
+      start: "11:10",
+      end: "13:00",
+    });
+    const res = await book(alice, { roomId: room.id });
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("ROOM_OCCUPIED");
+
+    // 課程結束後接著借可以
+    const after = await book(alice, { roomId: room.id, startTime: "13:00", endTime: "14:00" });
+    expect(after.status).toBe(201);
+  });
+
+  it("與已核准預約重疊回 409 ROOM_OCCUPIED；與待審核預約重疊可以建立", async () => {
+    const room = await insertRoom(t.db);
+    await insertBooking(t.db, {
+      userId: bob.id,
+      roomId: room.id,
+      date: DAY,
+      start: "09:00",
+      end: "10:30",
+      status: "approved",
+    });
+    const res = await book(alice, { roomId: room.id });
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("ROOM_OCCUPIED");
+
+    const room2 = await insertRoom(t.db);
+    await insertBooking(t.db, {
+      userId: bob.id,
+      roomId: room2.id,
+      date: DAY,
+      start: "09:00",
+      end: "10:30",
+      status: "pending",
+    });
+    expect((await book(alice, { roomId: room2.id })).status).toBe(201);
+  });
+
+  it("不可預約或停用的教室回 409 INVALID_STATE", async () => {
+    const office = await insertRoom(t.db, { isBookable: false });
+    const closed = await insertRoom(t.db, { isActive: false });
+    const r1 = await book(alice, { roomId: office.id });
+    expect(r1.status).toBe(409);
+    expect(await errorCode(r1)).toBe("INVALID_STATE");
+    const r2 = await book(alice, { roomId: closed.id });
+    expect(r2.status).toBe(409);
+    expect(await errorCode(r2)).toBe("INVALID_STATE");
+    expect((await book(alice, { roomId: crypto.randomUUID() })).status).toBe(404);
+  });
+
+  it("過去的時段回 400", async () => {
+    const room = await insertRoom(t.db);
+    // 管理員不受 3 天限制，仍不能借過去
+    expect((await book(admin, { roomId: room.id, date: "2020-01-06" })).status).toBe(400);
+    expect((await book(alice, { roomId: room.id, date: "2020-01-06" })).status).toBe(400);
+  });
+
+  it("依管理要點：未滿 3 天前申請回 400，管理員代為登記不受限", async () => {
+    const room = await insertRoom(t.db);
+    const soon = addDays(todayInTaipei(), 2);
+    const tooSoon = await book(alice, { roomId: room.id, date: soon });
+    expect(tooSoon.status).toBe(400);
+    expect(await errorCode(tooSoon)).toBe("VALIDATION");
+    expect((await book(admin, { roomId: room.id, date: soon })).status).toBe(201);
+    const ok = addDays(todayInTaipei(), 3);
+    expect(
+      (await book(alice, { roomId: room.id, date: ok, startTime: "13:00", endTime: "14:00" }))
+        .status,
+    ).toBe(201);
+  });
+
+  it("依管理要點：單筆最多 4 小時、最晚到 21:00", async () => {
+    const room = await insertRoom(t.db);
+    const cases = [
+      ["08:00", "12:10", 400],
+      ["19:00", "21:10", 400],
+      ["07:50", "09:00", 400],
+      ["17:00", "21:00", 201],
+      ["08:00", "12:00", 201],
+    ] as const;
+    for (const [startTime, endTime, status] of cases) {
+      expect((await book(alice, { roomId: room.id, startTime, endTime })).status).toBe(status);
+    }
+  });
+
+  it("物品數量不足回 409 ITEM_UNAVAILABLE", async () => {
+    const room = await insertRoom(t.db);
+    const other = await insertRoom(t.db);
+    const pointer = await insertItem(t.db, { name: "投影筆 B2", category: "pointer", quantity: 2 });
+    const res = await book(alice, {
+      roomId: room.id,
+      items: [{ itemId: pointer.id, quantity: 3 }],
+    });
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("ITEM_UNAVAILABLE");
+
+    // 同時段別間教室已核准借走 1 支，只剩 1 支
+    await insertBooking(t.db, {
+      userId: bob.id,
+      roomId: other.id,
+      date: DAY,
+      start: "11:00",
+      end: "12:00",
+      status: "approved",
+      items: [{ itemId: pointer.id, quantity: 1 }],
+    });
+    const two = await book(alice, {
+      roomId: room.id,
+      items: [{ itemId: pointer.id, quantity: 2 }],
+    });
+    expect(await errorCode(two)).toBe("ITEM_UNAVAILABLE");
+    const one = await book(alice, {
+      roomId: room.id,
+      items: [{ itemId: pointer.id, quantity: 1 }],
+    });
+    expect(one.status).toBe(201);
+
+    // 停用的物品不能借
+    const off = await insertItem(t.db, { category: "laptop", quantity: 5, isActive: false });
+    const disabled = await book(alice, {
+      roomId: room.id,
+      items: [{ itemId: off.id, quantity: 1 }],
+    });
+    expect(disabled.status).toBe(400);
+  });
+
+  it("不能借其他教室的鑰匙", async () => {
+    const room = await insertRoom(t.db);
+    const other = await insertRoom(t.db);
+    const key = await insertItem(t.db, { name: "別間鑰匙", category: "key", roomId: other.id });
+    const res = await book(alice, { roomId: room.id, items: [{ itemId: key.id, quantity: 1 }] });
+    expect(res.status).toBe(400);
+    expect(await errorCode(res)).toBe("VALIDATION");
+
+    // 失敗時不留下任何資料
+    const left = await t.db.select().from(bookingItems).where(eq(bookingItems.itemId, key.id));
+    expect(left).toEqual([]);
+
+    const own = await insertItem(t.db, { name: "這間鑰匙", category: "key", roomId: room.id });
+    const ok = await book(alice, { roomId: room.id, items: [{ itemId: own.id, quantity: 1 }] });
+    expect(ok.status).toBe(201);
+  });
 });
 
 describe("B3 教室週狀態", () => {

@@ -8,13 +8,19 @@
 import { asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { ItemAvailabilityQuery, ItemInput, ItemPatch } from "@class/shared/booking";
+import {
+  CreateBookingInput,
+  ItemAvailabilityQuery,
+  ItemInput,
+  ItemPatch,
+} from "@class/shared/booking";
 import { toInstant } from "@class/shared/time";
 import { notFound } from "../../core/errors.ts";
-import { requireAction } from "../../core/guards.ts";
+import { requireAction, requireApproved } from "../../core/guards.ts";
 import type { AppEnv } from "../../core/http.ts";
 import { validate } from "../../core/validate.ts";
 import { items } from "../../db/schema/index.ts";
+import { createBooking, findBooking } from "./bookings.ts";
 import { assertItemRoom, itemAvailability, listBorrowableItems, toItemDto } from "./items.ts";
 
 const idParam = z.object({ id: z.uuid() });
@@ -70,5 +76,19 @@ export const bookingRoutes = new Hono<AppEnv>()
       const [row] = await c.var.db.update(items).set(patch).where(eq(items.id, id)).returning();
       if (!row) throw notFound("物品");
       return c.json({ item: toItemDto(row) });
+    },
+  )
+
+  // ---- B2 建立預約 ----
+  .post(
+    "/bookings",
+    requireAction("booking.create"),
+    validate("json", CreateBookingInput),
+    async (c) => {
+      const me = requireApproved(c);
+      const id = await createBooking(c.var.db, me, c.req.valid("json"));
+      const booking = await findBooking(c.var.db, id);
+      if (!booking) throw notFound("預約");
+      return c.json({ booking }, 201);
     },
   );
