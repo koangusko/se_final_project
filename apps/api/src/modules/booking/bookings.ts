@@ -237,3 +237,37 @@ export async function reviewBooking(
     throw err;
   }
 }
+
+const HANDOVER = {
+  checkout: { from: "approved", to: "checked_out", label: "借出" },
+  return: { from: "checked_out", to: "returned", label: "歸還" },
+} as const;
+
+/** 借出（approved → checked_out）或歸還（checked_out → returned），記錄時間與經手人 */
+export async function handoverBooking(
+  db: Db,
+  handler: CurrentUser,
+  id: string,
+  kind: keyof typeof HANDOVER,
+  note: string | undefined,
+): Promise<void> {
+  const step = HANDOVER[kind];
+  const [row] = await db.select().from(bookings).where(eq(bookings.id, id));
+  if (!row) throw notFound("預約");
+  expectStatus(row.status, [step.from], step.label);
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(bookings)
+      .set(
+        kind === "checkout"
+          ? { status: step.to, checkedOutAt: now, checkedOutBy: handler.id }
+          : { status: step.to, returnedAt: now, returnedBy: handler.id },
+      )
+      .where(and(eq(bookings.id, id), eq(bookings.status, step.from)))
+      .returning({ id: bookings.id });
+    if (updated.length === 0) throw invalidState(`這筆預約剛剛已經${step.label}過了`);
+    await recordEvent(tx, id, handler.id, step.to, note || null);
+  });
+}
