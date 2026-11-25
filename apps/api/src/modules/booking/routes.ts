@@ -5,7 +5,7 @@
  * 這個檔案是模組的 API 入口，已經掛在 apps/api/src/routes.ts，不需要改那裡。
  * 路由要用串接寫法（new Hono().get(...).post(...)），前端的型別才推得出來。
  */
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -14,13 +14,14 @@ import {
   ItemInput,
   ItemPatch,
 } from "@class/shared/booking";
-import { toInstant } from "@class/shared/time";
+import { DateStrSchema, toInstant, weekRange, weekStartOf } from "@class/shared/time";
 import { notFound } from "../../core/errors.ts";
 import { requireAction, requireApproved } from "../../core/guards.ts";
 import type { AppEnv } from "../../core/http.ts";
+import { listOccupancy, toOccupancyDto } from "../../core/occupancy.ts";
 import { validate } from "../../core/validate.ts";
-import { items } from "../../db/schema/index.ts";
-import { createBooking, findBooking } from "./bookings.ts";
+import { bookings, items, rooms } from "../../db/schema/index.ts";
+import { createBooking, findBooking, findBookings } from "./bookings.ts";
 import { assertItemRoom, itemAvailability, listBorrowableItems, toItemDto } from "./items.ts";
 
 const idParam = z.object({ id: z.uuid() });
@@ -90,5 +91,35 @@ export const bookingRoutes = new Hono<AppEnv>()
       const booking = await findBooking(c.var.db, id);
       if (!booking) throw notFound("預約");
       return c.json({ booking }, 201);
+    },
+  )
+
+  // ---- B3 教室週狀態 ----
+  .get(
+    "/rooms/:id/week",
+    validate("param", idParam),
+    validate("query", z.object({ week: DateStrSchema })),
+    async (c) => {
+      const me = requireApproved(c);
+      const { id } = c.req.valid("param");
+      const [room] = await c.var.db
+        .select({ id: rooms.id, code: rooms.code, name: rooms.name, capacity: rooms.capacity })
+        .from(rooms)
+        .where(and(eq(rooms.id, id), eq(rooms.isActive, true)));
+      if (!room) throw notFound("教室");
+      const { start, end } = weekRange(weekStartOf(c.req.valid("query").week));
+      const occupancy = await listOccupancy(c.var.db, { roomIds: [id], from: start, to: end });
+      const mine = await findBookings(
+        c.var.db,
+        and(
+          eq(bookings.roomId, id),
+          eq(bookings.userId, me.id),
+          eq(bookings.status, "pending"),
+          lt(bookings.startsAt, end),
+          gt(bookings.endsAt, start),
+        ),
+        "asc",
+      );
+      return c.json({ room, occupancy: occupancy.map(toOccupancyDto), mine });
     },
   );
