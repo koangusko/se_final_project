@@ -11,7 +11,7 @@ import type {
   ItemDto,
 } from "@class/shared/booking";
 import { addDays, todayInTaipei } from "@class/shared/time";
-import { bookingEvents, bookingItems } from "../src/db/schema/index.ts";
+import { bookingEvents, bookingItems, bookings } from "../src/db/schema/index.ts";
 import { insertBooking, insertCourse, insertItem, insertRoom, insertSession } from "./fixtures.ts";
 import { createTestContext, type TestContext, type TestUser } from "./helpers.ts";
 
@@ -34,6 +34,16 @@ afterAll(() => t?.close());
 const json = async <T>(res: Response) => (await res.json()) as T;
 const errorCode = async (res: Response) =>
   (await json<{ error: { code: string } }>(res)).error.code;
+
+/** 建立預約並確認成功 */
+async function createBooking(as: TestUser, body: Record<string, unknown>) {
+  const res = await book(as, body);
+  expect(res.status).toBe(201);
+  return (await json<{ booking: BookingDto }>(res)).booking;
+}
+
+const review = (id: string, body: Record<string, unknown>, as: TestUser = admin) =>
+  t.request(`/api/booking/admin/bookings/${id}/review`, { as, json: body });
 
 /** 預設 DAY 10:00–12:00 的預約 */
 function book(as: TestUser | undefined, body: Record<string, unknown>) {
@@ -499,12 +509,132 @@ describe("B5 借用紀錄", () => {
 });
 
 describe("B6 審核", () => {
-  it.todo("管理員核准後狀態為 approved，記錄審核者與意見");
-  it.todo("退件必須填意見");
-  it.todo("核准時若已被課程占用回 409 ROOM_OCCUPIED");
-  it.todo("兩筆重疊的待審核預約，核准第一筆後第二筆核准失敗");
-  it.todo("只有 pending 可以審核，其他狀態回 409 INVALID_STATE");
-  it.todo("非管理員 403");
+  it("管理員核准後狀態為 approved，記錄審核者與意見", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+
+    const list = await t.request(`/api/booking/admin/bookings?status=pending&roomId=${room.id}`, {
+      as: admin,
+    });
+    expect((await json<{ bookings: BookingDto[] }>(list)).bookings.map((x) => x.id)).toEqual([
+      b.id,
+    ]);
+
+    const res = await review(b.id, { decision: "approve", note: "請準時歸還" });
+    expect(res.status).toBe(200);
+    const { booking } = await json<{ booking: BookingDto }>(res);
+    expect(booking).toMatchObject({ status: "approved", reviewNote: "請準時歸還" });
+    expect(booking.reviewedAt).not.toBeNull();
+
+    const [row] = await t.db.select().from(bookings).where(eq(bookings.id, b.id));
+    expect(row?.reviewedBy).toBe(admin.id);
+
+    const detail = await json<{ booking: BookingDetailDto }>(
+      await t.request(`/api/booking/bookings/${b.id}`, { as: alice }),
+    );
+    expect(detail.booking.events.map((e) => e.action)).toEqual(["created", "approved"]);
+    expect(detail.booking.events.at(-1)).toMatchObject({
+      action: "approved",
+      note: "請準時歸還",
+      actor: { id: admin.id },
+    });
+
+    // 列表篩選：狀態、教室、日期（from 含、to 不含）
+    const q = async (query: string) => {
+      const r = await t.request(`/api/booking/admin/bookings?roomId=${room.id}&${query}`, {
+        as: admin,
+      });
+      return (await json<{ bookings: BookingDto[] }>(r)).bookings.map((x) => x.id);
+    };
+    expect(await q("status=approved")).toEqual([b.id]);
+    expect(await q("status=pending")).toEqual([]);
+    expect(await q(`from=${DAY}&to=2030-03-05`)).toEqual([b.id]);
+    expect(await q("from=2030-03-05")).toEqual([]);
+    expect(await q(`to=${DAY}`)).toEqual([]);
+  });
+
+  it("退件必須填意見", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    expect((await review(b.id, { decision: "reject" })).status).toBe(400);
+    expect((await review(b.id, { decision: "reject", note: "   " })).status).toBe(400);
+    const res = await review(b.id, { decision: "reject", note: "當天有活動" });
+    expect(res.status).toBe(200);
+    expect((await json<{ booking: BookingDto }>(res)).booking).toMatchObject({
+      status: "rejected",
+      reviewNote: "當天有活動",
+    });
+  });
+
+  it("核准時若已被課程占用回 409 ROOM_OCCUPIED", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    // 申請之後才排進來的課
+    const course = await insertCourse(t.db, { createdBy: admin.id });
+    await insertSession(t.db, {
+      courseId: course.id,
+      roomId: room.id,
+      date: DAY,
+      start: "11:00",
+      end: "12:00",
+    });
+    const res = await review(b.id, { decision: "approve" });
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("ROOM_OCCUPIED");
+    // 失敗時狀態不變
+    const [row] = await t.db.select().from(bookings).where(eq(bookings.id, b.id));
+    expect(row?.status).toBe("pending");
+  });
+
+  it("兩筆重疊的待審核預約，核准第一筆後第二筆核准失敗", async () => {
+    const room = await insertRoom(t.db);
+    const b1 = await createBooking(alice, { roomId: room.id });
+    const b2 = await createBooking(bob, { roomId: room.id, startTime: "11:00", endTime: "13:00" });
+    expect((await review(b1.id, { decision: "approve" })).status).toBe(200);
+    const res = await review(b2.id, { decision: "approve" });
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("ROOM_OCCUPIED");
+
+    // 同時核准兩筆重疊的：只有一筆成功，另一筆 409（檢查或資料庫約束擋下）
+    const room2 = await insertRoom(t.db);
+    const c1 = await createBooking(alice, { roomId: room2.id });
+    const c2 = await createBooking(bob, { roomId: room2.id, startTime: "11:00", endTime: "13:00" });
+    const results = await Promise.all([
+      review(c1.id, { decision: "approve" }),
+      review(c2.id, { decision: "approve" }),
+    ]);
+    expect(results.map((r) => r.status).toSorted((a, b) => a - b)).toEqual([200, 409]);
+    const loser = results.find((r) => r.status === 409);
+    expect(await errorCode(loser!)).toBe("ROOM_OCCUPIED");
+  });
+
+  it("只有 pending 可以審核，其他狀態回 409 INVALID_STATE", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    await review(b.id, { decision: "approve" });
+    const again = await review(b.id, { decision: "approve" });
+    expect(again.status).toBe(409);
+    expect(await errorCode(again)).toBe("INVALID_STATE");
+
+    const cancelled = await insertBooking(t.db, {
+      userId: alice.id,
+      roomId: room.id,
+      date: DAY,
+      start: "14:00",
+      end: "15:00",
+      status: "cancelled",
+    });
+    const res = await review(cancelled.id, { decision: "reject", note: "x" });
+    expect(await errorCode(res)).toBe("INVALID_STATE");
+    expect((await review(crypto.randomUUID(), { decision: "approve" })).status).toBe(404);
+  });
+
+  it("非管理員 403", async () => {
+    const room = await insertRoom(t.db);
+    const b = await createBooking(alice, { roomId: room.id });
+    expect((await review(b.id, { decision: "approve" }, alice)).status).toBe(403);
+    expect((await t.request("/api/booking/admin/bookings", { as: alice })).status).toBe(403);
+  });
 });
 
 describe("B7 借出與歸還", () => {

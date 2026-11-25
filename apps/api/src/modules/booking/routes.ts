@@ -5,15 +5,17 @@
  * 這個檔案是模組的 API 入口，已經掛在 apps/api/src/routes.ts，不需要改那裡。
  * 路由要用串接寫法（new Hono().get(...).post(...)），前端的型別才推得出來。
  */
-import { and, asc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
   BOOKING_STATUSES,
+  BookingListQuery,
   CreateBookingInput,
   ItemAvailabilityQuery,
   ItemInput,
   ItemPatch,
+  ReviewBookingInput,
   type BookingDetailDto,
 } from "@class/shared/booking";
 import { can } from "@class/shared/permissions";
@@ -24,7 +26,7 @@ import type { AppEnv } from "../../core/http.ts";
 import { listOccupancy, toOccupancyDto } from "../../core/occupancy.ts";
 import { validate } from "../../core/validate.ts";
 import { bookings, items, rooms } from "../../db/schema/index.ts";
-import { createBooking, findBooking, findBookings, findEvents } from "./bookings.ts";
+import { createBooking, findBooking, findBookings, findEvents, reviewBooking } from "./bookings.ts";
 import { assertItemRoom, itemAvailability, listBorrowableItems, toItemDto } from "./items.ts";
 
 const idParam = z.object({ id: z.uuid() });
@@ -151,4 +153,38 @@ export const bookingRoutes = new Hono<AppEnv>()
     }
     const detail: BookingDetailDto = { ...booking, events: await findEvents(c.var.db, booking.id) };
     return c.json({ booking: detail });
-  });
+  })
+
+  // ---- B6 審核 ----
+  .get(
+    "/admin/bookings",
+    requireAction("booking.viewAll"),
+    validate("query", BookingListQuery),
+    async (c) => {
+      const q = c.req.valid("query");
+      const where = and(
+        q.status ? eq(bookings.status, q.status) : undefined,
+        q.roomId ? eq(bookings.roomId, q.roomId) : undefined,
+        // 依使用日：from 含、to 不含
+        q.from ? gte(bookings.startsAt, toInstant(q.from, "00:00")) : undefined,
+        q.to ? lt(bookings.startsAt, toInstant(q.to, "00:00")) : undefined,
+      );
+      // 還要處理的（待審核、待借出、借出中）依時間先後，其他新到舊
+      const todo = q.status === "pending" || q.status === "approved" || q.status === "checked_out";
+      return c.json({ bookings: await findBookings(c.var.db, where, todo ? "asc" : "desc") });
+    },
+  )
+
+  .post(
+    "/admin/bookings/:id/review",
+    requireAction("booking.review"),
+    validate("param", idParam),
+    validate("json", ReviewBookingInput),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      await reviewBooking(c.var.db, requireApproved(c), id, c.req.valid("json"));
+      const booking = await findBooking(c.var.db, id);
+      if (!booking) throw notFound("預約");
+      return c.json({ booking });
+    },
+  );
