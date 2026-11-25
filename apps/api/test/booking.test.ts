@@ -360,7 +360,69 @@ describe("B2 建立預約", () => {
 });
 
 describe("B3 教室週狀態", () => {
-  it.todo("回傳該週課程與已核准預約，以及我在這間教室的待審核預約");
+  it("回傳該週課程與已核准預約，以及我在這間教室的待審核預約", async () => {
+    // DAY = 2030-03-04 是週一
+    const room = await insertRoom(t.db);
+    const other = await insertRoom(t.db);
+    const course = await insertCourse(t.db, { createdBy: admin.id, name: "財務管理" });
+    await insertSession(t.db, {
+      courseId: course.id,
+      roomId: room.id,
+      date: DAY,
+      start: "08:10",
+      end: "10:00",
+    });
+    // 別間教室的課、下週的課不算
+    await insertSession(t.db, {
+      courseId: course.id,
+      roomId: other.id,
+      date: DAY,
+      start: "08:10",
+      end: "10:00",
+    });
+    await insertSession(t.db, {
+      courseId: course.id,
+      roomId: room.id,
+      date: "2030-03-11",
+      start: "08:10",
+      end: "10:00",
+    });
+    const at = (date: string, status: "pending" | "approved", userId = bob.id, roomId = room.id) =>
+      insertBooking(t.db, { userId, roomId, date, start: "10:00", end: "12:00", status });
+    const approved = await at("2030-03-05", "approved");
+    await at("2030-03-06", "pending"); // 別人的待審核：不占用，也不是我的
+    const mine = await at("2030-03-07", "pending", alice.id);
+    await at("2030-03-08", "pending", alice.id, other.id); // 我在別間的
+    await at("2030-03-11", "pending", alice.id); // 我下週的
+
+    // week 給該週任一天都可以（這裡給週三）
+    const res = await t.request(`/api/booking/rooms/${room.id}/week?week=2030-03-06`, {
+      as: alice,
+    });
+    expect(res.status).toBe(200);
+    const body = await json<{
+      room: { id: string; code: string; name: string; capacity: number };
+      occupancy: { source: string; refId: string; label: string }[];
+      mine: BookingDto[];
+    }>(res);
+    expect(body.room).toEqual({
+      id: room.id,
+      code: room.code,
+      name: room.name,
+      capacity: room.capacity,
+    });
+    expect(body.occupancy.map((o) => o.source)).toEqual(["course", "booking"]);
+    expect(body.occupancy[0]?.label).toBe("財務管理");
+    expect(body.occupancy[1]?.refId).toBe(approved.id);
+    expect(body.mine.map((b) => b.id)).toEqual([mine.id]);
+
+    expect(
+      (await t.request(`/api/booking/rooms/${crypto.randomUUID()}/week?week=${DAY}`, { as: alice }))
+        .status,
+    ).toBe(404);
+    expect((await t.request(`/api/booking/rooms/${room.id}/week`, { as: alice })).status).toBe(400);
+    expect((await t.request(`/api/booking/rooms/${room.id}/week?week=${DAY}`)).status).toBe(401);
+  });
 });
 
 describe("B5 借用紀錄", () => {
