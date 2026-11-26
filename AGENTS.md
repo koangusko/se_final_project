@@ -14,12 +14,13 @@
 | 2    | 空間/物品預約借用（booking） | B1–B8 | `docs/modules/booking.md`    |
 | 3    | 課程排課（scheduling）       | C1–C8 | `docs/modules/scheduling.md` |
 
-使用者說「開工第 N 模組」「做模組 N」或只給任務編號（例如 B3）時，照 `.claude/skills/task/SKILL.md` 的流程做：
+使用者說「開工第 N 模組」「做第 N 模組」「做模組 N」或只給任務編號（例如 B3）時，照 `.claude/skills/task/SKILL.md` 的流程做：
 
 1. 先 `git switch main && git pull && pnpm install`。
 2. 找出該模組第一個還沒完成的任務：模組規格 `## 進度` 裡第一個沒打勾的任務。
 3. 開分支 `<模組英文名>/<任務編號小寫>-<簡述>`（例如 `booking/b1-items`），只做這一個任務。
-4. 做完在 `## 進度` 打勾，回報後問使用者要不要開 PR（`/pr`）。下一個任務從最新的 main 開新分支；需要前一個還沒合併的任務的程式時，從前一個任務的分支開。PR 一律開在 main（`gh pr create --base main`），依賴還沒合併的 PR 時在說明寫「先合併 #X」。
+4. 做完在 `## 進度` 打勾，照 `.claude/skills/pr/SKILL.md` commit、push、開 PR（開在 main），CI 通過後自己合併，不用等使用者確認。接著從最新的 main 做下一個任務，直到模組的任務全部打勾。
+5. 遇到這些情況停下來回報：需要改整合者的檔案、`pnpm verify` 修不過、改了資料表（PR 標題加 `[schema]`，開 PR 但不合併）。
 
 ## 先讀這些
 

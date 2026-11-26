@@ -111,21 +111,18 @@ pnpm dev          # 啟動後端 http://localhost:3000 與前端 http://localhos
 
 ### 做一個任務
 
-1. 在 Claude Code 說「開工第 N 模組」（N 是 1、2、3），或輸入 `/task N`；要指定任務就輸入 `/task S3`。
-   - agent 會更新 main、開分支（`<模組英文名>/<任務編號小寫>-<簡述>`，例如 `space/s3-room-crud`）、讀規格、實作，把驗收測試從 todo 改成真的測試，並在模組規格的「進度」打勾。
-   - 用其他 agent（Codex、Cursor 等）時，它會自動讀 `AGENTS.md`；直接說「照 `.claude/skills/task/SKILL.md` 開工第 N 模組」。
-2. 確認 agent 的回報。
-3. agent 做完後輸入 `/verify`，確認型別、lint、格式、模組邊界、測試全部通過。
-4. 自己用 `pnpm dev` 實際操作一次，電腦和手機都要看（見上面「用手機測試」）。
-5. commit 並開 PR：輸入 `/pr`。
-6. CI 通過、整合者 review 後合併。合併方式用 merge commit 或 rebase，**不要 squash**。
-7. 整合者部署到線上。
+1. 用 Claude Code 開 clone 下來的 `se_final_project` 資料夾，說「做第 N 模組」（N 是 1、2、3），或輸入 `/task N`；要指定任務就輸入 `/task S3`。
+   - agent 一個任務開一個分支（`<模組英文名>/<任務編號小寫>-<簡述>`，例如 `space/s3-room-crud`）：讀規格、實作、把驗收測試從 todo 改成真的測試、`pnpm verify`、在模組規格的「進度」打勾，再 commit、push、開 PR，CI 通過後合併（merge commit），接著做下一個任務，直到模組做完。
+   - 需要改共用檔案、`pnpm verify` 修不過、改了資料表時，agent 會停下來回報。
+   - 用其他 agent（Codex、Cursor 等）時，它會自動讀 `AGENTS.md`；直接說「照 `.claude/skills/task/SKILL.md` 做第 N 模組」。
+2. 模組做完後，用 `pnpm dev:phone` 在手機上把 agent 列出的頁面走一遍（見上面「用手機測試」），有問題直接告訴 agent 修。
+3. 整合者部署到線上。
 
 ### main 有更新時
 
 - 每個任務開始前都先 `git pull` main，再 merge 或 rebase 進自己的分支，並重新讀 `AGENTS.md` 與模組規格：規則和共用元件會隨專案進行更新。
 - 整合者改規則或共用元件時，會在 PR 說明寫「給組員的變更摘要」。
-- 自己的 PR 跟 main 衝突時：`git fetch && git rebase origin/main`，解完衝突跑 `pnpm verify` 再推。不確定怎麼解，在 PR 留言請整合者處理。
+- 自己的 PR 跟 main 衝突時：`git fetch && git merge origin/main`，解完衝突跑 `pnpm verify` 再推。不確定怎麼解，在 PR 留言請整合者處理。
 
 ### 規則
 
